@@ -1,0 +1,14 @@
+header:
+  license:
+    spdx-id: Apache-2.0
+    copyright-owner: CloudWeGo Authors
+
+  paths:
+    - '**/*.go'
+    - '**/*.s'
+
+  paths-ignore:
+    - pkg/common/testdata/**
+    - cmd/hz/internal/protobuf/api
+
+  comment: on-failure
