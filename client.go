@@ -32,7 +32,6 @@ import (
 	"io"
 	"io/ioutil"
 	"math"
-	mathrand "math/rand"
 	"net"
 	"os"
 	"reflect"
@@ -41,6 +40,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app/client/retry"
 	"github.com/cloudwego/hertz/pkg/common/bytebufferpool"
 	"github.com/cloudwego/hertz/pkg/common/compress"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
@@ -142,30 +142,6 @@ func (hc *HostClient) Get(ctx context.Context, dst []byte, url string) (statusCo
 	return client.GetURL(ctx, dst, url, hc)
 }
 
-// shouldRetryRequest is called by RoundTrip when a request fails to get
-// response headers. It is always called with a non-nil error.
-// It returns either a request to retry (either the same request, or a
-// modified clone), or an error if the request can't be replayed.
-func shouldRetryRequest(req *protocol.Request, err error) (*protocol.Request, error) {
-	if !canRetryError(err) {
-		return nil, err
-	}
-	// If the Body is nil (or http.NoBody), it's safe to reuse
-	// this request and its Body.
-	if req.BodyStream() == ext.NoBody && len(req.Body()) == 0 {
-		return req, nil
-	}
-
-	// The Request.Body can't reset back to the beginning, but we
-	// don't seem to have started to read from it yet, so reuse
-	// the request directly.
-	if err == errClientConnUnusable {
-		return req, nil
-	}
-
-	return nil, fmt.Errorf("http2: Transport: cannot retry err [%v] after Request.Body was written; define Request.GetBody to avoid this error", err)
-}
-
 func canRetryError(err error) bool {
 	if err == errClientConnUnusable || err == errClientConnGotGoAway {
 		return true
@@ -180,39 +156,70 @@ func canRetryError(err error) bool {
 	return false
 }
 
+func defaultRetryIf(req *protocol.Request, resp *protocol.Response, err error) bool {
+	if !canRetryError(err) {
+		return false
+	}
+	// If the Body is nil (or http.NoBody), it's safe to reuse
+	// this request and its Body.
+	if req.BodyStream() == ext.NoBody && len(req.Body()) == 0 {
+		return true
+	}
+
+	// The Request.Body can't reset back to the beginning, but we
+	// don't seem to have started to read from it yet, so reuse
+	// the request directly.
+	if err == errClientConnUnusable {
+		return true
+	}
+
+	return false
+}
+
 func (hc *HostClient) Do(ctx context.Context, req *protocol.Request, rsp *protocol.Response) error {
 	if !bytes.Equal(req.URI().Scheme(), bytestr.StrHTTPS) && !hc.AllowHTTP {
 		return errors.New("http2: unsupported scheme")
 	}
-	for retry := 0; ; retry++ {
-		cc, err := hc.acquireConn()
+
+	var (
+		err                error
+		attempts           uint               = 0
+		maxAttempts        uint               = 1
+		isRequestRetryable client.RetryIfFunc = defaultRetryIf
+	)
+	retryCfg := hc.ClientConfig.RetryConfig
+	if retryCfg != nil {
+		maxAttempts = retryCfg.MaxAttemptTimes
+	}
+
+	if hc.ClientConfig.RetryIf != nil {
+		isRequestRetryable = hc.ClientConfig.RetryIf
+	}
+
+	for {
+		var cc *clientConn
+		cc, err = hc.acquireConn()
 		if err != nil {
 			hlog.Errorf("http2: transport failed to get client conn for %s: %v", hc.Addr, err)
 			return err
 		}
 		err = cc.RoundTrip(ctx, req, rsp)
-		if err != nil && retry <= hc.MaxIdempotentCallAttempts {
-			if req, err = shouldRetryRequest(req, err); err == nil {
-				// After the first retry, do exponential backoff with 10% jitter.
-				if retry == 0 {
-					continue
-				}
-				backoff := float64(uint(1) << (uint(retry) - 1))
-				backoff += backoff * (0.1 * mathrand.Float64())
-				select {
-				case <-time.After(time.Second * time.Duration(backoff)):
-					continue
-				case <-ctx.Done():
-					err = ctx.Err()
-				}
-			}
+		if err == nil {
+			return nil
 		}
-		if err != nil {
-			hlog.Errorf("RoundTrip failure: %v", err)
-			return err
+		attempts++
+		if attempts >= maxAttempts {
+			break
 		}
-		return nil
+		// Check whether this request should be retried
+		if !isRequestRetryable(req, rsp, err) {
+			break
+		}
+		wait := retry.Delay(attempts, err, retryCfg)
+		// Retry after wait time
+		time.Sleep(wait)
 	}
+	return err
 }
 
 func (cc *clientConn) RoundTrip(ctx context.Context, req *protocol.Request, rsp *protocol.Response) error {

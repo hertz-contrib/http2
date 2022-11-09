@@ -20,8 +20,10 @@ import (
 	"crypto/tls"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app/client/retry"
 	"github.com/cloudwego/hertz/pkg/network"
 	"github.com/cloudwego/hertz/pkg/network/netpoll"
+	"github.com/cloudwego/hertz/pkg/protocol/client"
 	"github.com/hertz-contrib/http2/internal/consts"
 )
 
@@ -91,10 +93,13 @@ type ClientConfig struct {
 	// after DefaultMaxIdleConnDuration.
 	MaxIdleConnDuration time.Duration
 
-	// Maximum number of attempts for idempotent calls
+	// All configurations related to retry
+	RetryConfig *retry.Config
+
+	// RetryIf controls whether a retry should be attempted after an error.
 	//
-	// DefaultMaxIdempotentCallAttempts is used if not set.
-	MaxIdempotentCallAttempts int
+	// By default will use isIdempotent function
+	RetryIf client.RetryIfFunc
 
 	// Connection will close after each request when set this to true.
 	DisableKeepAlive bool
@@ -182,10 +187,24 @@ func WithMaxIdleConnDuration(d time.Duration) ClientOption {
 	}}
 }
 
-// WithMaxIdempotentCallAttempts is used to set max idemponent call attempts.
-func WithMaxIdempotentCallAttempts(attempts int) ClientOption {
+// WithMaxIdempotentCallAttempts sets maximum number of attempts for idempotent calls.
+func WithMaxIdempotentCallAttempts(n int) ClientOption {
+	return WithRetryConfig(retry.WithMaxAttemptTimes(uint(n)))
+}
+
+// WithRetryConfig sets client retry config
+func WithRetryConfig(opts ...retry.Option) ClientOption {
+	retryCfg := &retry.Config{
+		MaxAttemptTimes: 0,
+		Delay:           1 * time.Millisecond,
+		MaxDelay:        100 * time.Millisecond,
+		MaxJitter:       20 * time.Millisecond,
+		DelayPolicy:     retry.CombineDelay(retry.DefaultDelayPolicy),
+	}
+	retryCfg.Apply(opts)
+
 	return ClientOption{F: func(o *ClientConfig) {
-		o.MaxIdempotentCallAttempts = attempts
+		o.RetryConfig = retryCfg
 	}}
 }
 

@@ -47,6 +47,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app/client/retry"
+
 	"github.com/cloudwego/hertz/pkg/network"
 	"github.com/cloudwego/hertz/pkg/network/dialer"
 	"github.com/cloudwego/hertz/pkg/network/standard"
@@ -73,8 +75,18 @@ type mockNetworkConn struct {
 	rw   *bufio.ReadWriter
 }
 
+func (c *mockNetworkConn) SetWriteTimeout(t time.Duration) error {
+	// TODO implement me
+	panic("implement me")
+}
+
 type mockTLSConn struct {
 	*mockNetworkConn
+}
+
+func (c *mockTLSConn) SetWriteTimeout(t time.Duration) error {
+	// TODO implement me
+	panic("implement me")
 }
 
 func (c *mockTLSConn) Handshake() error {
@@ -392,6 +404,11 @@ type testNetConn struct {
 	net.Conn
 	closed  bool
 	onClose func()
+}
+
+func (c *testNetConn) SetWriteTimeout(t time.Duration) error {
+	// TODO implement me
+	panic("implement me")
 }
 
 func (c *testNetConn) Peek(n int) ([]byte, error) {
@@ -836,9 +853,9 @@ func newClientTester(t *testing.T) *clientTester {
 				dialOnce.dialed = true
 				return &testNetConn{Conn: ct.cc}, nil
 			}),
-			MaxHeaderListSize:         10 << 20,
-			PingTimeout:               15 * time.Second,
-			MaxIdempotentCallAttempts: 3,
+			MaxHeaderListSize: 10 << 20,
+			PingTimeout:       15 * time.Second,
+			RetryConfig:       &retry.Config{MaxAttemptTimes: 3},
 		},
 	}
 
@@ -2008,6 +2025,11 @@ type noteCloseConn struct {
 	net.Conn
 	onceClose sync.Once
 	closefn   func()
+}
+
+func (c *noteCloseConn) SetWriteTimeout(t time.Duration) error {
+	// TODO implement me
+	panic("implement me")
 }
 
 func (c *noteCloseConn) Peek(n int) ([]byte, error) {
@@ -3446,9 +3468,9 @@ func TestHostClientRetryAfterGOAWAY(t *testing.T) {
 
 	tr := &HostClient{
 		ClientConfig: &config.ClientConfig{
-			TLSConfig:                 tlsConfigInsecure,
-			MaxIdempotentCallAttempts: 3,
-			DisableKeepAlive:          true,
+			TLSConfig:        tlsConfigInsecure,
+			RetryConfig:      &retry.Config{MaxAttemptTimes: 3},
+			DisableKeepAlive: true,
 		},
 	}
 	tr.Dialer = newMockDialerWithCustomFunc(standard.NewDialer(), func(network, address string, timeout time.Duration, tlsConfig *tls.Config) (conn network.Conn, err error) {

@@ -3,7 +3,7 @@ module github.com/hertz-contrib/http2
 go 1.18
 
 require (
-	github.com/cloudwego/hertz v0.4.0
+	github.com/cloudwego/hertz v0.4.2-0.20221122030751-2def49cd876c
 	golang.org/x/net v0.1.0
 )
 
@@ -12,7 +12,7 @@ require (
 	github.com/bytedance/gopkg v0.0.0-20220413063733-65bf48ffb3a7 // indirect
 	github.com/bytedance/sonic v1.5.0 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20211019084208-fb5309c8db06 // indirect
-	github.com/cloudwego/netpoll v0.2.6 // indirect
+	github.com/cloudwego/netpoll v0.3.1 // indirect
 	github.com/fsnotify/fsnotify v1.5.4 // indirect
 	github.com/golang/protobuf v1.5.0 // indirect
 	github.com/henrylee2cn/ameda v1.4.10 // indirect

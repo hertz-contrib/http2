@@ -34,7 +34,6 @@ func TestClientOptions(t *testing.T) {
 	assert.DeepEqual(t, uint32(0), options.MaxHeaderListSize)
 	assert.DeepEqual(t, false, options.DisableKeepAlive)
 	assert.DeepEqual(t, time.Second, options.DialTimeout)
-	assert.DeepEqual(t, 0, options.MaxIdempotentCallAttempts)
 	assert.DeepEqual(t, time.Duration(0), options.MaxIdleConnDuration)
 
 	options = NewClientConfig(
@@ -48,6 +47,7 @@ func TestClientOptions(t *testing.T) {
 		WithMaxIdempotentCallAttempts(5),
 		WithMaxIdleConnDuration(time.Second*3),
 		WithClientDisableKeepAlive(true),
+		WithRetryConfig(),
 	)
 	assert.DeepEqual(t, true, options.StrictMaxConcurrentStreams)
 	assert.DeepEqual(t, time.Second, options.ReadIdleTimeout)
@@ -57,6 +57,9 @@ func TestClientOptions(t *testing.T) {
 	assert.DeepEqual(t, uint32(4), options.MaxHeaderListSize)
 	assert.DeepEqual(t, true, options.DisableKeepAlive)
 	assert.DeepEqual(t, time.Second*2, options.DialTimeout)
-	assert.DeepEqual(t, 5, options.MaxIdempotentCallAttempts)
 	assert.DeepEqual(t, time.Second*3, options.MaxIdleConnDuration)
+	assert.DeepEqual(t, uint(0), options.RetryConfig.MaxAttemptTimes)
+	assert.DeepEqual(t, 1*time.Millisecond, options.RetryConfig.Delay)
+	assert.DeepEqual(t, 100*time.Millisecond, options.RetryConfig.MaxDelay)
+	assert.DeepEqual(t, 20*time.Millisecond, options.RetryConfig.MaxJitter)
 }
