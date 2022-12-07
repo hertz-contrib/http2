@@ -244,6 +244,7 @@ func (s *Server) Serve(ctx context.Context, c network.Conn) error {
 		srv:                         s,
 		engine:                      &s.BaseEngine,
 		conn:                        &h2Conn{c},
+		rawConn:                     c,
 		baseCtx:                     ctx,
 		remoteAddrStr:               c.RemoteAddr().String(),
 		bw:                          newBufferedWriter(c),
@@ -361,6 +362,7 @@ type serverConn struct {
 	// Immutable:
 	srv              *Server
 	conn             net.Conn
+	rawConn          network.Conn
 	bw               *bufferedWriter // writing to conn
 	baseCtx          context.Context
 	framer           *Framer
@@ -1721,6 +1723,7 @@ func (sc *serverConn) newStream(id, pusherID uint32, state streamState) *stream 
 	if connection, ok := sc.conn.(network.Conn); ok {
 		reqCtx.SetConn(connection)
 	}
+	reqCtx.SetConn(sc.rawConn)
 	reqCtx.Request.Header.SetProtocol(consts.HTTP20)
 	reqCtx.Request.Header.InitContentLengthWithValue(-1)
 	baseCtx, cancel := context.WithCancel(context.Background())
