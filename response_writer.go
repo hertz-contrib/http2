@@ -62,12 +62,11 @@ type responseWriterState struct {
 	// TODO: adjust buffer writing sizes based on server config, frame size updates from peer, etc
 	bw *bufio.Writer // writing to a chunkWriter{this *responseWriterState}
 
-	trailers    []string // set in writeChunk
-	status      int      // status code passed to WriteHeaders
-	wroteHeader bool     // WriteHeaders called (explicitly or implicitly). Not necessarily sent to user yet.
-	sentHeader  bool     // have we sent the header frame?
-	handlerDone bool     // handler has finished
-	dirty       bool     // a Write failed; don't reuse this responseWriterState
+	status      int  // status code passed to WriteHeaders
+	wroteHeader bool // WriteHeaders called (explicitly or implicitly). Not necessarily sent to user yet.
+	sentHeader  bool // have we sent the header frame?
+	handlerDone bool // handler has finished
+	dirty       bool // a Write failed; don't reuse this responseWriterState
 
 	sentContentLen int64 // non-zero if handler set a Content-Length header
 	wroteBytes     int64
@@ -80,17 +79,17 @@ type chunkWriter struct{ rws *responseWriterState }
 
 func (cw chunkWriter) Write(p []byte) (n int, err error) { return cw.rws.writeChunk(p) }
 
-func (rws *responseWriterState) hasTrailers() bool { return len(rws.trailers) > 0 }
+func (rws *responseWriterState) hasTrailers() bool {
+	has_trailers := false
+	rws.stream.reqCtx.Response.Header.VisitAllTrailer(func(_ []byte) {
+		has_trailers = true
+	})
+	return has_trailers
+}
 
 func (rws *responseWriterState) hasNonemptyTrailers() bool {
-	// TODO Not support trailers yet
-
-	// for _, trailer := range rws.trailers {
-	// 	if _, ok := rws.handlerHeader[trailer]; ok {
-	// 		return true
-	// 	}
-	// }
-	return false
+	// TODO add trailer prefix support
+	return rws.hasTrailers()
 }
 
 // writeChunk writes chunks from the bufio.Writer. But because
@@ -192,6 +191,24 @@ func (rws *responseWriterState) writeChunk(p []byte) (n int, err error) {
 	// if rws.handlerDone && hasNonemptyTrailers {
 	// TODO send trailers
 	// }
+	trailers := make([]string, 0)
+	rws.stream.reqCtx.Response.Header.VisitAllTrailer(func(value []byte) {
+		trailers = append(trailers, string(value))
+	})
+
+	if rws.handlerDone && hasNonemptyTrailers {
+		header := &rws.stream.reqCtx.Response.Header
+		err = rws.conn.writeHeaders(rws.stream, &writeResHeaders{
+			streamID:  rws.stream.id,
+			h:         header,
+			trailers:  trailers,
+			endStream: true,
+		})
+		if err != nil {
+			rws.dirty = true
+		}
+		return len(p), err
+	}
 	return len(p), nil
 }
 

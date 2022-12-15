@@ -1529,7 +1529,7 @@ func (st *stream) endStream() {
 		st.body.CloseWithError(fmt.Errorf("request declared a Content-Length of %d but only wrote %d bytes",
 			st.declBodyBytes, st.bodyBytes))
 	} else {
-		st.body.closeWithErrorAndCode(io.EOF, st.copyTrailersToHandlerRequest)
+		st.body.closeWithErrorAndCode(io.EOF, st.copyTrailer)
 		st.body.CloseWithError(io.EOF)
 	}
 	st.state = stateHalfClosedRemote

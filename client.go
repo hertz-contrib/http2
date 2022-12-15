@@ -33,6 +33,7 @@ import (
 	"io/ioutil"
 	"math"
 	"net"
+	"net/http"
 	"os"
 	"reflect"
 	"strconv"
@@ -699,10 +700,14 @@ type clientStream struct {
 	sentHeaders   bool
 
 	// owned by clientConnReadLoop:
-	firstByte   bool  // got the first response byte
-	num1xx      uint8 // number of 1xx responses seen
-	readClosed  bool  // peer sent an END_STREAM flag
-	readAborted bool  // read loop reset the stream
+	firstByte    bool  // got the first response byte
+	pastHeaders  bool  // got first MetaHeadersFrame (actual headers)
+	pastTrailers bool  // got optional second MetaHeadersFrame (trailers)
+	num1xx       uint8 // number of 1xx responses seen
+	readClosed   bool  // peer sent an END_STREAM flag
+	readAborted  bool  // read loop reset the stream
+
+	trailer []hpack.HeaderField
 }
 
 var got1xxFuncForTests func(int, *protocol.ResponseHeader) error
@@ -750,6 +755,16 @@ func (cs *clientStream) abortRequestBodyWrite() {
 		}
 		cs.reqBodyClosed = true
 		cc.cond.Broadcast()
+	}
+}
+
+func (cs *clientStream) copyTrailer() {
+	for _, hf := range cs.trailer {
+		key := canonicalHeader(hf.Name)
+		if ext.IsBadTrailer(bytesconv.S2b(key)) || !checkResponseTrailer(&cs.res.Header, bytesconv.S2b(key)) {
+			continue
+		}
+		cs.res.Header.SetCanonical(bytesconv.S2b(key), bytesconv.S2b(hf.Value))
 	}
 }
 
@@ -1380,6 +1395,10 @@ func (cs *clientStream) writeRequestBody(req *protocol.Request) (err error) {
 	body := cs.reqBody
 	sentEnd := false // whether we sent the final DATA frame w/ END_STREAM
 
+	hasTrailers := false
+	req.Header.VisitAllTrailer(func(_ []byte) {
+		hasTrailers = true
+	})
 	remainLen := cs.reqBodyContentLength
 	hasContentLen := remainLen != -1
 
@@ -1446,7 +1465,7 @@ func (cs *clientStream) writeRequestBody(req *protocol.Request) (err error) {
 			cc.wmu.Lock()
 			data := remain[:allowed]
 			remain = remain[allowed:]
-			sentEnd = sawEOF && len(remain) == 0
+			sentEnd = sawEOF && len(remain) == 0 && !hasTrailers
 			err = cc.fr.WriteData(cs.ID, sentEnd, data)
 			if err == nil {
 				// TODO(bradfitz): this flush is for latency, not bandwidth.
@@ -1475,6 +1494,7 @@ func (cs *clientStream) writeRequestBody(req *protocol.Request) (err error) {
 	// a request after the Response's Body is closed, verify that this hasn't
 	// happened before accessing the trailers.
 	cc.mu.Lock()
+	header := &req.Header
 	err = cs.abortErr
 	cc.mu.Unlock()
 	if err != nil {
@@ -1483,8 +1503,17 @@ func (cs *clientStream) writeRequestBody(req *protocol.Request) (err error) {
 
 	cc.wmu.Lock()
 	defer cc.wmu.Unlock()
+	trls, err := cc.encodeTrailer(header)
+	if err != nil {
+		return err
+	}
 
-	err = cc.fr.WriteData(cs.ID, true, nil)
+	if len(trls) > 0 {
+		err = cc.writeHeaders(cs.ID, true, maxFrameSize, trls)
+	} else {
+		err = cc.fr.WriteData(cs.ID, true, nil)
+	}
+
 	if ferr := cc.bw.Flush(); ferr != nil && err == nil {
 		err = ferr
 	}
@@ -1636,6 +1665,9 @@ func (cc *clientConn) encodeHeaders(req *protocol.Request, addGzipHeader bool, c
 				}
 
 				return
+			} else if checkRequestTrailer(&req.Header, k) {
+				// Check if the key is Trailer, and if so, send it at the end
+				return
 			}
 			f(string(k), string(v))
 		})
@@ -1672,6 +1704,35 @@ func (cc *clientConn) encodeHeaders(req *protocol.Request, addGzipHeader bool, c
 	})
 
 	return cc.hbuf.Bytes(), nil
+}
+
+// requires cc.wmu be held.
+func (cc *clientConn) encodeTrailer(header *protocol.RequestHeader) ([]byte, error) {
+	cc.hbuf.Reset()
+
+	// Do a first pass over the headers counting bytes to ensure
+	// we don't exceed cc.peerMaxHeaderListSize. This is done as a
+	// separate pass before encoding the headers to prevent
+	// modifying the hpack state.
+	hlSize := uint64(0)
+	header.VisitAll(func(key, value []byte) {
+		if checkRequestTrailer(header, key) {
+			hf := hpack.HeaderField{Name: bytesconv.B2s(key), Value: bytesconv.B2s(value)}
+			hlSize += uint64(hf.Size())
+		}
+	})
+	if hlSize > cc.peerMaxHeaderListSize {
+		return nil, errRequestHeaderListSize
+	}
+	header.VisitAll(func(key, value []byte) {
+		if checkRequestTrailer(header, key) {
+			lowKey := lowerHeader(bytesconv.B2s(key))
+			cc.writeHeader(lowKey, bytesconv.B2s(value))
+		}
+	})
+
+	return cc.hbuf.Bytes(), nil
+
 }
 
 func shouldSendReqContentLength(method string, contentLength int64) bool {
@@ -1911,6 +1972,12 @@ func (rl *clientConnReadLoop) processHeaders(f *MetaHeadersFrame) error {
 		cs.firstByte = true
 	}
 
+	if !cs.pastHeaders {
+		cs.pastHeaders = true
+	} else {
+		return rl.processTrailers(cs, f)
+	}
+
 	res, err := rl.handleResponse(cs, f)
 	if err != nil {
 		if _, ok := err.(ConnectionError); ok {
@@ -1987,6 +2054,7 @@ func (rl *clientConnReadLoop) handleResponse(cs *clientStream, f *MetaHeadersFra
 			default:
 			}
 		}
+		cs.pastHeaders = false // read Header again
 		return nil, nil
 	}
 
@@ -2020,6 +2088,49 @@ func (rl *clientConnReadLoop) handleResponse(cs *clientStream, f *MetaHeadersFra
 	}
 
 	return res, nil
+}
+
+func (rl *clientConnReadLoop) processTrailers(cs *clientStream, f *MetaHeadersFrame) error {
+	if cs.pastTrailers {
+		// Too many HEADERS frames for this stream.
+		return ConnectionError(ErrCodeProtocol)
+	}
+	cs.pastTrailers = true
+	if !f.StreamEnded() {
+		// We expect that any headers for trailers also
+		// has END_STREAM.
+		return ConnectionError(ErrCodeProtocol)
+	}
+	if len(f.PseudoFields()) > 0 {
+		// No pseudo header fields are defined for trailers.
+		// TODO: ConnectionError might be overly harsh? Check.
+		return ConnectionError(ErrCodeProtocol)
+	}
+
+	cs.trailer = f.RegularFields()
+
+	rl.endStream(cs)
+	return nil
+}
+
+func checkRequestTrailer(header *protocol.RequestHeader, key []byte) bool {
+	declared := false
+	header.VisitAllTrailer(func(value []byte) {
+		if bytes.Equal(key, value) {
+			declared = true
+		}
+	})
+	return declared
+}
+
+func checkResponseTrailer(header *protocol.ResponseHeader, key []byte) bool {
+	declared := false
+	header.VisitAllTrailer(func(value []byte) {
+		if bytes.Equal(key, value) {
+			declared = true
+		}
+	})
+	return declared
 }
 
 // transportResponseBody is the concrete type of Transport.RoundTrip's
@@ -2244,7 +2355,7 @@ func (rl *clientConnReadLoop) endStream(cs *clientStream) {
 	// server.go's (*stream).endStream method.
 	if !cs.readClosed {
 		cs.readClosed = true
-		cs.bufPipe.closeWithErrorAndCode(io.EOF, func() {})
+		cs.bufPipe.closeWithErrorAndCode(io.EOF, cs.copyTrailer)
 		close(cs.peerClosed)
 	}
 }
@@ -2495,4 +2606,12 @@ func NewHostClient(c *config.ClientConfig) client.HostClient {
 	}
 	hc.conns.Init()
 	return hc
+}
+
+func canonicalHeader(v string) string {
+	buildCommonHeaderMapsOnce()
+	if s, ok := commonCanonHeader[v]; ok {
+		return s
+	}
+	return http.CanonicalHeaderKey(v)
 }
