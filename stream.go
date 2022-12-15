@@ -21,7 +21,6 @@
 package http2
 
 import (
-	"bytes"
 	"context"
 	"time"
 
@@ -89,20 +88,10 @@ func (st *stream) processTrailerHeaders(f *MetaHeadersFrame) error {
 	return nil
 }
 
-func (st *stream) checkTrailer(key []byte) bool {
-	declared := false
-	st.reqCtx.Request.Header.VisitAllTrailer(func(value []byte) {
-		if bytes.Equal(key, value) {
-			declared = true
-		}
-	})
-	return declared
-}
-
 func (st *stream) copyTrailer() {
 	for _, hf := range st.trailer {
 		key := st.sc.canonicalHeader(hf.Name)
-		if ext.IsBadTrailer(bytesconv.S2b(key)) || !st.checkTrailer(bytesconv.S2b(key)) {
+		if ext.IsBadTrailer(bytesconv.S2b(key)) || !checkRequestTrailer(&st.reqCtx.Request.Header, bytesconv.S2b(key)) {
 			continue
 		}
 		st.reqCtx.Request.Header.SetCanonical(bytesconv.S2b(key), bytesconv.S2b(hf.Value))
