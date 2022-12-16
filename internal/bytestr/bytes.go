@@ -33,4 +33,6 @@ var (
 
 	StrExpect = []byte(consts.HeaderExpect)
 	StrClose  = []byte("close")
+
+	StrCommaSpace = []byte(", ")
 )

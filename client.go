@@ -1732,7 +1732,6 @@ func (cc *clientConn) encodeTrailer(header *protocol.RequestHeader) ([]byte, err
 	})
 
 	return cc.hbuf.Bytes(), nil
-
 }
 
 func shouldSendReqContentLength(method string, contentLength int64) bool {
@@ -2114,23 +2113,21 @@ func (rl *clientConnReadLoop) processTrailers(cs *clientStream, f *MetaHeadersFr
 }
 
 func checkRequestTrailer(header *protocol.RequestHeader, key []byte) bool {
-	declared := false
-	header.VisitAllTrailer(func(value []byte) {
-		if bytes.Equal(key, value) {
-			declared = true
+	for _, kv := range header.GetTrailers() {
+		if bytes.Equal(kv.GetKey(), key) {
+			return true
 		}
-	})
-	return declared
+	}
+	return false
 }
 
 func checkResponseTrailer(header *protocol.ResponseHeader, key []byte) bool {
-	declared := false
-	header.VisitAllTrailer(func(value []byte) {
-		if bytes.Equal(key, value) {
-			declared = true
+	for _, kv := range header.GetTrailers() {
+		if bytes.Equal(kv.GetKey(), key) {
+			return true
 		}
-	})
-	return declared
+	}
+	return false
 }
 
 // transportResponseBody is the concrete type of Transport.RoundTrip's
