@@ -2185,10 +2185,10 @@ func checkValidHTTP2RequestHeaders(h *protocol.RequestHeader) error {
 		}
 	}
 
-	// FIXME: 现在Hertz不支持Trailer，先不管
-	//if len(te) > 0 && (len(te) > 1 || (te[0] != "trailers" && te[0] != "")) {
-	//	return errors.New(`request header "TE" may only be "trailers" in HTTP/2`)
-	//}
+	te := h.Get("Te")
+	if te != "" && te != "trailer" {
+		return errors.New(`request header "TE" may only be "trailers" in HTTP/2`)
+	}
 	return nil
 }
 

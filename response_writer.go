@@ -80,16 +80,7 @@ type chunkWriter struct{ rws *responseWriterState }
 func (cw chunkWriter) Write(p []byte) (n int, err error) { return cw.rws.writeChunk(p) }
 
 func (rws *responseWriterState) hasTrailers() bool {
-	has_trailers := false
-	rws.stream.reqCtx.Response.Header.VisitAllTrailer(func(_ []byte) {
-		has_trailers = true
-	})
-	return has_trailers
-}
-
-func (rws *responseWriterState) hasNonemptyTrailers() bool {
-	// TODO add trailer prefix support
-	return rws.hasTrailers()
+	return rws.stream.reqCtx.Response.Header.HasTrailer()
 }
 
 // writeChunk writes chunks from the bufio.Writer. But because
@@ -106,7 +97,7 @@ func (rws *responseWriterState) writeChunk(p []byte) (n int, err error) {
 	reqCtx := rws.stream.reqCtx
 	isHeadResp := bytes.Equal(reqCtx.Method(), bytestr.StrHead)
 	if !rws.sentHeader {
-		header := &rws.stream.reqCtx.Response.Header
+		header := &reqCtx.Response.Header
 		rws.sentHeader = true
 
 		var clen string
@@ -178,7 +169,7 @@ func (rws *responseWriterState) writeChunk(p []byte) (n int, err error) {
 
 	// only send trailers if they have actually been defined by the
 	// server handler.
-	hasNonemptyTrailers := rws.hasNonemptyTrailers()
+	hasNonemptyTrailers := rws.hasTrailers()
 	endStream := rws.handlerDone && !hasNonemptyTrailers
 	if len(p) > 0 || endStream {
 		// only send a 0 byte DATA frame if we're ending the stream.
@@ -188,20 +179,12 @@ func (rws *responseWriterState) writeChunk(p []byte) (n int, err error) {
 		}
 	}
 
-	// if rws.handlerDone && hasNonemptyTrailers {
-	// TODO send trailers
-	// }
-	trailers := make([]string, 0)
-	rws.stream.reqCtx.Response.Header.VisitAllTrailer(func(value []byte) {
-		trailers = append(trailers, string(value))
-	})
-
 	if rws.handlerDone && hasNonemptyTrailers {
-		header := &rws.stream.reqCtx.Response.Header
+		header := &reqCtx.Response.Header
 		err = rws.conn.writeHeaders(rws.stream, &writeResHeaders{
 			streamID:  rws.stream.id,
 			h:         header,
-			trailers:  trailers,
+			isTrailer: true,
 			endStream: true,
 		})
 		if err != nil {

@@ -31,6 +31,8 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/http2/hpack"
+	"github.com/hertz-contrib/http2/internal/bytesconv"
+	"github.com/hertz-contrib/http2/internal/bytestr"
 	consts2 "github.com/hertz-contrib/http2/internal/consts"
 )
 
@@ -198,7 +200,7 @@ type writeResHeaders struct {
 	streamID    uint32
 	httpResCode int                      // 0 means no ":status" line
 	h           *protocol.ResponseHeader // may be nil
-	trailers    []string                 // if non-nil, which keys of h to write. nil means all.
+	isTrailer   bool
 	endStream   bool
 
 	date          string
@@ -232,7 +234,7 @@ func (w *writeResHeaders) writeFrame(ctx writeContext) error {
 		encKV(enc, ":status", httpCodeString(w.httpResCode))
 	}
 
-	encodeHeaders(enc, w.h, w.trailers)
+	encodeHeaders(enc, w.h, w.isTrailer)
 
 	if w.contentType != "" {
 		encKV(enc, "content-type", w.contentType)
@@ -245,7 +247,7 @@ func (w *writeResHeaders) writeFrame(ctx writeContext) error {
 	}
 
 	headerBlock := buf.Bytes()
-	if len(headerBlock) == 0 && w.trailers == nil {
+	if len(headerBlock) == 0 && !w.isTrailer {
 		panic("unexpected empty hpack")
 	}
 
@@ -351,7 +353,7 @@ func (wu writeWindowUpdate) writeFrame(ctx writeContext) error {
 // encodeHeaders encodes an http.Header. If keys is not nil, then (k, h[k])
 // keys is not supported now.
 // is encoded only if k is in keys.
-func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, keys []string) {
+func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, isTrailer bool) {
 	// did we need sort?
 	// if keys == nil {
 	// 	sorter := sorterPool.Get().(*sorter)
@@ -362,25 +364,24 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, keys []string
 	// 	keys = sorter.Entries(h)
 	// }
 
-	// Add special header that not in `writeResHeaders`
-	// `writeResHeaders` handles the special headers it considers,
-	// such as content-length, etc., and the remaining headers are uniformly
-	// encoded using encodeHeaders. But the special header of hertz is
-	// different from the special header of writeResHeader. There are
-	// several additional headers, so special handler here.
-	if len(h.Server()) > 0 {
-		encKV(enc, consts.HeaderServerLower, string(h.Server()))
-	}
-	if len(h.ContentEncoding()) > 0 {
-		encKV(enc, consts2.HeaderEncodingLower, string(h.ContentEncoding()))
-	}
-
-	cookies := h.GetCookies()
-	if len(cookies) > 0 {
-		for i := 0; i < len(cookies); i++ {
-			kv := &cookies[i]
-			encKV(enc, consts.HeaderSetCookieLower, string(kv.GetValue()))
+	if !isTrailer {
+		if len(h.Server()) > 0 {
+			encKV(enc, consts.HeaderServerLower, string(h.Server()))
 		}
+		if len(h.ContentEncoding()) > 0 {
+			encKV(enc, consts2.HeaderEncodingLower, string(h.ContentEncoding()))
+		}
+		if h.HasTrailer() {
+			encKV(enc, consts.HeaderTrailerLower, bytesconv.B2s(protocol.AppendArgsKeyBytes(nil, h.GetTrailers(), bytestr.StrCommaSpace)))
+		}
+		cookies := h.GetCookies()
+		if len(cookies) > 0 {
+			for i := 0; i < len(cookies); i++ {
+				kv := &cookies[i]
+				encKV(enc, consts.HeaderSetCookieLower, string(kv.GetValue()))
+			}
+		}
+
 	}
 
 	headerKVs := h.GetHeaders()
@@ -404,6 +405,13 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, keys []string
 			// Fields, don't send connection-specific
 			// fields. We have already checked if any
 			// are error-worthy so just ignore the rest.
+			continue
+		}
+
+		if isTrailer && !checkResponseTrailer(h, kv.GetKey()) {
+			continue
+		}
+		if !isTrailer && checkResponseTrailer(h, kv.GetKey()) {
 			continue
 		}
 		encKV(enc, k, string(kv.GetValue()))
