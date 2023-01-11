@@ -49,7 +49,6 @@ import (
 	"github.com/cloudwego/hertz/pkg/network/dialer"
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/client"
-	"github.com/cloudwego/hertz/pkg/protocol/http1/ext"
 	"github.com/hertz-contrib/http2/config"
 	"github.com/hertz-contrib/http2/hpack"
 	"github.com/hertz-contrib/http2/internal/bytesconv"
@@ -163,7 +162,7 @@ func defaultRetryIf(req *protocol.Request, resp *protocol.Response, err error) b
 	}
 	// If the Body is nil (or http.NoBody), it's safe to reuse
 	// this request and its Body.
-	if req.BodyStream() == ext.NoBody && len(req.Body()) == 0 {
+	if req.BodyStream() == protocol.NoBody && len(req.Body()) == 0 {
 		return true
 	}
 
@@ -237,7 +236,7 @@ func (cc *clientConn) RoundTrip(ctx context.Context, req *protocol.Request, rsp 
 		res:                  rsp,
 	}
 
-	if cs.reqBody == ext.NoBody && len(req.Body()) > 0 {
+	if cs.reqBody == protocol.NoBody && len(req.Body()) > 0 {
 		cs.reqBody = bytes.NewReader(req.Body())
 	}
 
@@ -761,10 +760,7 @@ func (cs *clientStream) abortRequestBodyWrite() {
 func (cs *clientStream) copyTrailer() {
 	for _, hf := range cs.trailer {
 		key := canonicalHeader(hf.Name)
-		if ext.IsBadTrailer(bytesconv.S2b(key)) || !checkResponseTrailer(&cs.res.Header, bytesconv.S2b(key)) {
-			continue
-		}
-		cs.res.Header.SetCanonical(bytesconv.S2b(key), bytesconv.S2b(hf.Value))
+		cs.res.Header.Trailer.Set(key, hf.Value)
 	}
 }
 
@@ -1106,7 +1102,7 @@ func checkConnHeaders(req *protocol.Request) error {
 // req.ContentLength, where 0 actually means zero (not unknown) and -1
 // means unknown.
 func actualContentLength(req *protocol.Request) int64 {
-	if req.BodyStream() == ext.NoBody {
+	if req.BodyStream() == protocol.NoBody {
 		return int64(len(req.Body()))
 	}
 
@@ -1395,10 +1391,6 @@ func (cs *clientStream) writeRequestBody(req *protocol.Request) (err error) {
 	body := cs.reqBody
 	sentEnd := false // whether we sent the final DATA frame w/ END_STREAM
 
-	hasTrailers := false
-	req.Header.VisitAllTrailer(func(_ []byte) {
-		hasTrailers = true
-	})
 	remainLen := cs.reqBodyContentLength
 	hasContentLen := remainLen != -1
 
@@ -1465,7 +1457,7 @@ func (cs *clientStream) writeRequestBody(req *protocol.Request) (err error) {
 			cc.wmu.Lock()
 			data := remain[:allowed]
 			remain = remain[allowed:]
-			sentEnd = sawEOF && len(remain) == 0 && !hasTrailers
+			sentEnd = sawEOF && len(remain) == 0 && req.Header.Trailer.Empty()
 			err = cc.fr.WriteData(cs.ID, sentEnd, data)
 			if err == nil {
 				// TODO(bradfitz): this flush is for latency, not bandwidth.
@@ -1665,9 +1657,6 @@ func (cc *clientConn) encodeHeaders(req *protocol.Request, addGzipHeader bool, c
 				}
 
 				return
-			} else if checkRequestTrailer(&req.Header, k) {
-				// Check if the key is Trailer, and if so, send it at the end
-				return
 			}
 			f(string(k), string(v))
 		})
@@ -1715,20 +1704,16 @@ func (cc *clientConn) encodeTrailer(header *protocol.RequestHeader) ([]byte, err
 	// separate pass before encoding the headers to prevent
 	// modifying the hpack state.
 	hlSize := uint64(0)
-	header.VisitAll(func(key, value []byte) {
-		if checkRequestTrailer(header, key) {
-			hf := hpack.HeaderField{Name: bytesconv.B2s(key), Value: bytesconv.B2s(value)}
-			hlSize += uint64(hf.Size())
-		}
+	header.Trailer.VisitAll(func(key, value []byte) {
+		hf := hpack.HeaderField{Name: bytesconv.B2s(key), Value: bytesconv.B2s(value)}
+		hlSize += uint64(hf.Size())
 	})
 	if hlSize > cc.peerMaxHeaderListSize {
 		return nil, errRequestHeaderListSize
 	}
-	header.VisitAll(func(key, value []byte) {
-		if checkRequestTrailer(header, key) {
-			lowKey := lowerHeader(bytesconv.B2s(key))
-			cc.writeHeader(lowKey, bytesconv.B2s(value))
-		}
+	header.Trailer.VisitAll(func(key, value []byte) {
+		lowKey := lowerHeader(bytesconv.B2s(key))
+		cc.writeHeader(lowKey, bytesconv.B2s(value))
 	})
 
 	return cc.hbuf.Bytes(), nil
@@ -2110,24 +2095,6 @@ func (rl *clientConnReadLoop) processTrailers(cs *clientStream, f *MetaHeadersFr
 
 	rl.endStream(cs)
 	return nil
-}
-
-func checkRequestTrailer(header *protocol.RequestHeader, key []byte) bool {
-	for _, kv := range header.GetTrailers() {
-		if bytes.Equal(kv.GetKey(), key) {
-			return true
-		}
-	}
-	return false
-}
-
-func checkResponseTrailer(header *protocol.ResponseHeader, key []byte) bool {
-	for _, kv := range header.GetTrailers() {
-		if bytes.Equal(kv.GetKey(), key) {
-			return true
-		}
-	}
-	return false
 }
 
 // transportResponseBody is the concrete type of Transport.RoundTrip's

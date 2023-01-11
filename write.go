@@ -31,7 +31,6 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/http2/hpack"
 	"github.com/hertz-contrib/http2/internal/bytesconv"
-	"github.com/hertz-contrib/http2/internal/bytestr"
 )
 
 // writeFramer is implemented by any type that is used to write frames.
@@ -372,30 +371,36 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, isTrailer boo
 				encKV(enc, consts.HeaderSetCookieLower, string(kv.GetValue()))
 			}
 		}
-		if h.HasTrailer() {
-			encKV(enc, consts.HeaderTrailerLower, bytesconv.B2s(protocol.AppendArgsKeyBytes(nil, h.GetTrailers(), bytestr.StrCommaSpace)))
+		if !h.Trailer.Empty() {
+			encKV(enc, consts.HeaderTrailerLower, bytesconv.B2s(h.Trailer.GetBytes()))
+		}
+		headerKVs := h.GetHeaders()
+
+		for _, kv := range headerKVs {
+			k := string(kv.GetKey())
+			k = lowerHeader(k)
+			if !validWireHeaderFieldName(k) {
+				// Skip it as backup paranoia. Per
+				// golang.org/issue/14048, these should
+				// already be rejected at a higher level.
+				continue
+			}
+			encKV(enc, k, string(kv.GetValue()))
+		}
+	} else {
+		headerKVs := h.Trailer.GetTrailers()
+
+		for _, kv := range headerKVs {
+			k := string(kv.GetKey())
+			k = lowerHeader(k)
+			if !validWireHeaderFieldName(k) {
+				// Skip it as backup paranoia. Per
+				// golang.org/issue/14048, these should
+				// already be rejected at a higher level.
+				continue
+			}
+			encKV(enc, k, string(kv.GetValue()))
 		}
 
-	}
-
-	headerKVs := h.GetHeaders()
-
-	for _, kv := range headerKVs {
-		k := string(kv.GetKey())
-		k = lowerHeader(k)
-		if !validWireHeaderFieldName(k) {
-			// Skip it as backup paranoia. Per
-			// golang.org/issue/14048, these should
-			// already be rejected at a higher level.
-			continue
-		}
-
-		if isTrailer && !checkResponseTrailer(h, kv.GetKey()) {
-			continue
-		}
-		if !isTrailer && checkResponseTrailer(h, kv.GetKey()) {
-			continue
-		}
-		encKV(enc, k, string(kv.GetValue()))
 	}
 }

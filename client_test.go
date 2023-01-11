@@ -48,13 +48,11 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app/client/retry"
-
 	"github.com/cloudwego/hertz/pkg/network"
 	"github.com/cloudwego/hertz/pkg/network/dialer"
 	"github.com/cloudwego/hertz/pkg/network/standard"
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	"github.com/cloudwego/hertz/pkg/protocol/http1/ext"
 	"github.com/hertz-contrib/http2/config"
 	"github.com/hertz-contrib/http2/hpack"
 	"golang.org/x/net/http2"
@@ -4085,7 +4083,7 @@ func TestHostClientNoBodyMeansNoDATA(t *testing.T) {
 	ct.client = func() error {
 		req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
 		req.SetRequestURI("https://dummy.tld/")
-		req.SetBodyStream(ext.NoBody, -1)
+		req.SetBodyStream(protocol.NoBody, -1)
 		ct.tr.Do(context.Background(), req, rsp)
 		<-unblockClient
 		return nil
@@ -5392,7 +5390,7 @@ func TestHostClientWithTrailerHeader(t *testing.T) {
 	}
 
 	for k := range wantTrailerHeader {
-		actual_value := rsp.Header.Get(k)
+		actual_value := rsp.Header.Trailer.Get(k)
 		if actual_value != "" {
 			t.Errorf("Expected empty Header, got: %s", actual_value)
 		}
@@ -5401,7 +5399,7 @@ func TestHostClientWithTrailerHeader(t *testing.T) {
 	_ = rsp.Body() // read all body
 
 	for k, v := range wantTrailerHeader {
-		actual_value := rsp.Header.Get(k)
+		actual_value := rsp.Header.Trailer.Get(k)
 		if actual_value != v {
 			t.Errorf("Expected Header %s: %s, got: %s", k, v, actual_value)
 		}

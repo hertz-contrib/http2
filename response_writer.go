@@ -80,7 +80,7 @@ type chunkWriter struct{ rws *responseWriterState }
 func (cw chunkWriter) Write(p []byte) (n int, err error) { return cw.rws.writeChunk(p) }
 
 func (rws *responseWriterState) hasTrailers() bool {
-	return rws.stream.reqCtx.Response.Header.HasTrailer()
+	return !rws.stream.reqCtx.Response.Header.Trailer.Empty()
 }
 
 // writeChunk writes chunks from the bufio.Writer. But because
