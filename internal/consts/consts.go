@@ -22,3 +22,5 @@ import (
 
 // DefaultPingTimeout is the default ping timeout
 const DefaultPingTimeout = 15 * time.Second
+
+const HeaderEncodingLower = "content-encoding"

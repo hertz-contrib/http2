@@ -67,3 +67,25 @@ func TestClientIP(t *testing.T) {
 	req.SetRequestURI("https://127.0.0.1:8888")
 	c.Do(context.Background(), req, rsp)
 }
+
+func TestContentEncoding(t *testing.T) {
+	h := server.New(server.WithHostPorts(":8889"), server.WithH2C(true))
+
+	// register http2 server factory
+	h.AddProtocol("h2", NewServerFactory())
+
+	h.POST("/", func(c context.Context, ctx *app.RequestContext) {
+		ctx.Response.Header.SetContentEncoding("gzip")
+	})
+	go h.Spin()
+	time.Sleep(time.Second)
+
+	c, _ := client.NewClient()
+	c.SetClientFactory(NewClientFactory(config.WithAllowHTTP(true)))
+	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
+	req.SetMethod("POST")
+	req.SetRequestURI("http://127.0.0.1:8889")
+	c.Do(context.Background(), req, rsp)
+	assert.DeepEqual(t, "gzip", string(rsp.Header.ContentEncoding()))
+	assert.DeepEqual(t, "", string(rsp.Header.Server()))
+}

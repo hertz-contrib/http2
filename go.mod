@@ -3,8 +3,8 @@ module github.com/hertz-contrib/http2
 go 1.18
 
 require (
-	github.com/cloudwego/hertz v0.4.2
-	golang.org/x/net v0.1.0
+	github.com/cloudwego/hertz v0.5.0
+	golang.org/x/net v0.5.0
 )
 
 require (
@@ -24,7 +24,7 @@ require (
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
-	golang.org/x/sys v0.1.0 // indirect
-	golang.org/x/text v0.4.0 // indirect
+	golang.org/x/sys v0.4.0 // indirect
+	golang.org/x/text v0.6.0 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
 )
