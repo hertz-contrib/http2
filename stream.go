@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/hertz-contrib/http2/hpack"
 )
 
 type Trailer = []struct {
@@ -62,20 +63,7 @@ type stream struct {
 	rw               *responseWriter
 	handler          app.HandlerFunc
 
-	// FIXME IMPL Trailer
-	// trailer    Trailer // accumulated trailers
-	// reqTrailer Trailer // handler's Request.Trailer
-}
-
-// copyTrailersToHandlerRequest is run in the Handler's goroutine in
-// its Request.Body.Read just before it gets io.EOF.
-func (st *stream) copyTrailersToHandlerRequest() {
-	//for k, vv := range st.trailer {
-	//	if _, ok := st.reqTrailer[k]; ok {
-	//		// Only copy it over it was pre-declared.
-	//		st.reqTrailer[k] = vv
-	//	}
-	//}
+	trailer []hpack.HeaderField
 }
 
 func (st *stream) processTrailerHeaders(f *MetaHeadersFrame) error {
@@ -93,6 +81,15 @@ func (st *stream) processTrailerHeaders(f *MetaHeadersFrame) error {
 		return streamError(st.id, ErrCodeProtocol)
 	}
 
+	st.trailer = f.RegularFields()
+
 	st.endStream()
 	return nil
+}
+
+func (st *stream) copyTrailer() {
+	for _, hf := range st.trailer {
+		key := st.sc.canonicalHeader(hf.Name)
+		st.reqCtx.Request.Header.Trailer.Set(key, hf.Value)
+	}
 }

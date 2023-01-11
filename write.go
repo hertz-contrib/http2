@@ -30,6 +30,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/http2/hpack"
+	"github.com/hertz-contrib/http2/internal/bytesconv"
 )
 
 // writeFramer is implemented by any type that is used to write frames.
@@ -196,7 +197,7 @@ type writeResHeaders struct {
 	streamID    uint32
 	httpResCode int                      // 0 means no ":status" line
 	h           *protocol.ResponseHeader // may be nil
-	trailers    []string                 // if non-nil, which keys of h to write. nil means all.
+	isTrailer   bool
 	endStream   bool
 
 	date          string
@@ -230,7 +231,7 @@ func (w *writeResHeaders) writeFrame(ctx writeContext) error {
 		encKV(enc, ":status", httpCodeString(w.httpResCode))
 	}
 
-	encodeHeaders(enc, w.h, w.trailers)
+	encodeHeaders(enc, w.h, w.isTrailer)
 
 	if w.contentType != "" {
 		encKV(enc, "content-type", w.contentType)
@@ -243,7 +244,7 @@ func (w *writeResHeaders) writeFrame(ctx writeContext) error {
 	}
 
 	headerBlock := buf.Bytes()
-	if len(headerBlock) == 0 && w.trailers == nil {
+	if len(headerBlock) == 0 && !w.isTrailer {
 		panic("unexpected empty hpack")
 	}
 
@@ -349,7 +350,7 @@ func (wu writeWindowUpdate) writeFrame(ctx writeContext) error {
 // encodeHeaders encodes an http.Header. If keys is not nil, then (k, h[k])
 // keys is not supported now.
 // is encoded only if k is in keys.
-func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, keys []string) {
+func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, isTrailer bool) {
 	// did we need sort?
 
 	// if keys == nil {
@@ -361,26 +362,45 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, keys []string
 	// 	keys = sorter.Entries(h)
 	// }
 
-	encKV(enc, consts.HeaderServerLower, string(h.Server()))
-	cookies := h.GetCookies()
-	if len(cookies) > 0 {
-		for i := 0; i < len(cookies); i++ {
-			kv := &cookies[i]
-			encKV(enc, consts.HeaderSetCookieLower, string(kv.GetValue()))
+	if !isTrailer {
+		encKV(enc, consts.HeaderServerLower, string(h.Server()))
+		cookies := h.GetCookies()
+		if len(cookies) > 0 {
+			for i := 0; i < len(cookies); i++ {
+				kv := &cookies[i]
+				encKV(enc, consts.HeaderSetCookieLower, string(kv.GetValue()))
+			}
 		}
-	}
-
-	headerKVs := h.GetHeaders()
-
-	for _, kv := range headerKVs {
-		k := string(kv.GetKey())
-		k = lowerHeader(k)
-		if !validWireHeaderFieldName(k) {
-			// Skip it as backup paranoia. Per
-			// golang.org/issue/14048, these should
-			// already be rejected at a higher level.
-			continue
+		if !h.Trailer.Empty() {
+			encKV(enc, consts.HeaderTrailerLower, bytesconv.B2s(h.Trailer.GetBytes()))
 		}
-		encKV(enc, k, string(kv.GetValue()))
+		headerKVs := h.GetHeaders()
+
+		for _, kv := range headerKVs {
+			k := string(kv.GetKey())
+			k = lowerHeader(k)
+			if !validWireHeaderFieldName(k) {
+				// Skip it as backup paranoia. Per
+				// golang.org/issue/14048, these should
+				// already be rejected at a higher level.
+				continue
+			}
+			encKV(enc, k, string(kv.GetValue()))
+		}
+	} else {
+		headerKVs := h.Trailer.GetTrailers()
+
+		for _, kv := range headerKVs {
+			k := string(kv.GetKey())
+			k = lowerHeader(k)
+			if !validWireHeaderFieldName(k) {
+				// Skip it as backup paranoia. Per
+				// golang.org/issue/14048, these should
+				// already be rejected at a higher level.
+				continue
+			}
+			encKV(enc, k, string(kv.GetValue()))
+		}
+
 	}
 }
