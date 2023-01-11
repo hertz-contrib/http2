@@ -371,8 +371,8 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, isTrailer boo
 		if len(h.ContentEncoding()) > 0 {
 			encKV(enc, consts2.HeaderEncodingLower, string(h.ContentEncoding()))
 		}
-		if h.HasTrailer() {
-			encKV(enc, consts.HeaderTrailerLower, bytesconv.B2s(protocol.AppendArgsKeyBytes(nil, h.GetTrailers(), bytestr.StrCommaSpace)))
+		if !h.Trailer.Empty() {
+			encKV(enc, consts.HeaderTrailerLower, bytesconv.B2s(h.Trailer.GetBytes()))
 		}
 		cookies := h.GetCookies()
 		if len(cookies) > 0 {
@@ -382,38 +382,45 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, isTrailer boo
 			}
 		}
 
-	}
+		headerKVs := h.GetHeaders()
 
-	headerKVs := h.GetHeaders()
+		for _, kv := range headerKVs {
+			k := string(kv.GetKey())
+			k = lowerHeader(k)
+			if !validWireHeaderFieldName(k) {
+				// Skip it as backup paranoia. Per
+				// golang.org/issue/14048, these should
+				// already be rejected at a higher level.
+				continue
+			}
 
-	for _, kv := range headerKVs {
-		k := string(kv.GetKey())
-		k = lowerHeader(k)
-		if !validWireHeaderFieldName(k) {
-			// Skip it as backup paranoia. Per
-			// golang.org/issue/14048, these should
-			// already be rejected at a higher level.
-			continue
-		}
+			if strings.ToLower(k) == "connection" ||
+				strings.ToLower(k) == "proxy-connection" ||
+				strings.ToLower(k) == "transfer-encoding" ||
+				strings.ToLower(k) == "upgrade" ||
+				strings.ToLower(k) == "keep-alive" {
+				// Per 8.1.2.2 Connection-Specific Header
+				// Fields, don't send connection-specific
+				// fields. We have already checked if any
+				// are error-worthy so just ignore the rest.
+				continue
+			}
 
-		if strings.ToLower(k) == "connection" ||
-			strings.ToLower(k) == "proxy-connection" ||
-			strings.ToLower(k) == "transfer-encoding" ||
-			strings.ToLower(k) == "upgrade" ||
-			strings.ToLower(k) == "keep-alive" {
-			// Per 8.1.2.2 Connection-Specific Header
-			// Fields, don't send connection-specific
-			// fields. We have already checked if any
-			// are error-worthy so just ignore the rest.
-			continue
+			encKV(enc, k, string(kv.GetValue()))
 		}
+	} else {
+		headerKVs := h.Trailer.GetTrailers()
 
-		if isTrailer && !checkResponseTrailer(h, kv.GetKey()) {
-			continue
+		for _, kv := range headerKVs {
+			k := string(kv.GetKey())
+			k = lowerHeader(k)
+			if !validWireHeaderFieldName(k) {
+				// Skip it as backup paranoia. Per
+				// golang.org/issue/14048, these should
+				// already be rejected at a higher level.
+				continue
+			}
+			encKV(enc, k, string(kv.GetValue()))
 		}
-		if !isTrailer && checkResponseTrailer(h, kv.GetKey()) {
-			continue
-		}
-		encKV(enc, k, string(kv.GetValue()))
 	}
 }

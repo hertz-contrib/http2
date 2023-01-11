@@ -25,9 +25,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/cloudwego/hertz/pkg/protocol/http1/ext"
 	"github.com/hertz-contrib/http2/hpack"
-	"github.com/hertz-contrib/http2/internal/bytesconv"
 )
 
 type Trailer = []struct {
@@ -91,9 +89,6 @@ func (st *stream) processTrailerHeaders(f *MetaHeadersFrame) error {
 func (st *stream) copyTrailer() {
 	for _, hf := range st.trailer {
 		key := st.sc.canonicalHeader(hf.Name)
-		if ext.IsBadTrailer(bytesconv.S2b(key)) || !checkRequestTrailer(&st.reqCtx.Request.Header, bytesconv.S2b(key)) {
-			continue
-		}
-		st.reqCtx.Request.Header.SetCanonical(bytesconv.S2b(key), bytesconv.S2b(hf.Value))
+		st.reqCtx.Request.Header.Trailer.Set(key, hf.Value)
 	}
 }

@@ -1802,26 +1802,6 @@ func (sc *serverConn) newWriterAndRequestNoBody(st *stream) (*responseWriter, er
 		reqCtx.Request.Header.DelBytes(bytestr.StrExpect)
 	}
 
-	// TODO Trailer
-	// Setup Trailers
-	//var trailer http.Header
-	//for _, v := range rp.header["Trailer"] {
-	//	for _, key := range strings.Split(v, ",") {
-	//		key = http.CanonicalHeaderKey(strings.TrimSpace(key))
-	//		switch key {
-	//		case "Transfer-Encoding", "Trailer", "Content-Length":
-	//			// Bogus. (copy of http1 rules)
-	//			// Ignore.
-	//		default:
-	//			if trailer == nil {
-	//				trailer = make(http.Header)
-	//			}
-	//			trailer[key] = nil
-	//		}
-	//	}
-	//}
-	//delete(rp.header, "Trailer")
-
 	body := &requestBody{
 		conn:          sc,
 		stream:        st,
@@ -2185,7 +2165,7 @@ func checkValidHTTP2RequestHeaders(h *protocol.RequestHeader) error {
 		}
 	}
 
-	te := h.Get("Te")
+	te := h.Get(consts.HeaderTE)
 	if te != "" && te != "trailer" {
 		return errors.New(`request header "TE" may only be "trailers" in HTTP/2`)
 	}
