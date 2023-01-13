@@ -30,6 +30,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/http2/hpack"
+	consts2 "github.com/hertz-contrib/http2/internal/consts"
 )
 
 // writeFramer is implemented by any type that is used to write frames.
@@ -351,7 +352,6 @@ func (wu writeWindowUpdate) writeFrame(ctx writeContext) error {
 // is encoded only if k is in keys.
 func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, keys []string) {
 	// did we need sort?
-
 	// if keys == nil {
 	// 	sorter := sorterPool.Get().(*sorter)
 	// 	// Using defer here, since the returned keys from the
@@ -361,7 +361,19 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, keys []string
 	// 	keys = sorter.Entries(h)
 	// }
 
-	encKV(enc, consts.HeaderServerLower, string(h.Server()))
+	// Add special header that not in `writeResHeaders`
+	// `writeResHeaders` handles the special headers it considers,
+	// such as content-length, etc., and the remaining headers are uniformly
+	// encoded using encodeHeaders. But the special header of hertz is
+	// different from the special header of writeResHeader. There are
+	// several additional headers, so special handler here.
+	if len(h.Server()) > 0 {
+		encKV(enc, consts.HeaderServerLower, string(h.Server()))
+	}
+	if len(h.ContentEncoding()) > 0 {
+		encKV(enc, consts2.HeaderEncodingLower, string(h.ContentEncoding()))
+	}
+
 	cookies := h.GetCookies()
 	if len(cookies) > 0 {
 		for i := 0; i < len(cookies); i++ {
