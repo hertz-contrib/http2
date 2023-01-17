@@ -119,19 +119,19 @@ func TestServerIdleTimeout(t *testing.T) {
 
 	// first request, acceptCount + 1
 	c.Do(context.Background(), req, rsp)
-	assert.DeepEqual(t, int32(1), acceptCount)
+	assert.DeepEqual(t, int32(1), atomic.LoadInt32(&acceptCount))
 
 	time.Sleep(time.Second)
 
 	// second request, the connection is alive
 	rsp.Reset()
 	c.Do(context.Background(), req, rsp)
-	assert.DeepEqual(t, int32(1), acceptCount)
+	assert.DeepEqual(t, int32(1), atomic.LoadInt32(&acceptCount))
 
 	time.Sleep(time.Second * 10)
 
 	// third request, the connection is released, acceptCount + 1
 	rsp.Reset()
 	c.Do(context.Background(), req, rsp)
-	assert.DeepEqual(t, int32(2), acceptCount)
+	assert.DeepEqual(t, int32(2), atomic.LoadInt32(&acceptCount))
 }
