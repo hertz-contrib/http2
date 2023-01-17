@@ -24,6 +24,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/network"
 	"github.com/cloudwego/hertz/pkg/network/netpoll"
 	"github.com/cloudwego/hertz/pkg/protocol/client"
+	hertz_consts "github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/http2/internal/consts"
 )
 
@@ -217,9 +218,10 @@ func WithClientDisableKeepAlive(disable bool) ClientOption {
 
 func NewClientConfig(opts ...ClientOption) *ClientConfig {
 	cfg := &ClientConfig{
-		PingTimeout: consts.DefaultPingTimeout,
-		Dialer:      netpoll.NewDialer(),
-		DialTimeout: time.Second,
+		PingTimeout:         consts.DefaultPingTimeout,
+		Dialer:              netpoll.NewDialer(),
+		DialTimeout:         time.Second,
+		MaxIdleConnDuration: hertz_consts.DefaultMaxIdleConnDuration,
 	}
 	cfg.Apply(opts)
 	return cfg

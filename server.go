@@ -60,8 +60,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hertz-contrib/http2/config"
-
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/bytebufferpool"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
@@ -69,6 +67,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/cloudwego/hertz/pkg/protocol/suite"
+	"github.com/hertz-contrib/http2/config"
 	"github.com/hertz-contrib/http2/hpack"
 	"github.com/hertz-contrib/http2/internal/bytesconv"
 	"github.com/hertz-contrib/http2/internal/bytestr"
@@ -112,48 +111,6 @@ type BaseEngine struct {
 // Server is an HTTP/2 server.
 type Server struct {
 	BaseEngine
-
-	// MaxHandlers limits the number of http.Handler ServeHTTP goroutines
-	// which may run at a time over all connections.
-	// Negative or zero no limit.
-	// TODO: implement
-	MaxHandlers int
-
-	// MaxConcurrentStreams optionally specifies the number of
-	// concurrent streams that each client may have open at a
-	// time. This is unrelated to the number of http.Handler goroutines
-	// which may be active globally, which is MaxHandlers.
-	// If zero, MaxConcurrentStreams defaults to at least 100, per
-	// the HTTP/2 spec's recommendations.
-	MaxConcurrentStreams uint32
-
-	// MaxReadFrameSize optionally specifies the largest frame
-	// this server is willing to read. A valid value is between
-	// 16k and 16M, inclusive. If zero or otherwise invalid, a
-	// default value is used.
-	MaxReadFrameSize uint32
-
-	// PermitProhibitedCipherSuites, if true, permits the use of
-	// cipher suites prohibited by the HTTP/2 spec.
-	PermitProhibitedCipherSuites bool
-
-	// IdleTimeout specifies how long until idle clients should be
-	// closed with a GOAWAY frame. PING frames are not considered
-	// activity for the purposes of IdleTimeout.
-	IdleTimeout time.Duration
-
-	// MaxUploadBufferPerConnection is the size of the initial flow
-	// control window for each connections. The HTTP/2 spec does not
-	// allow this to be smaller than 65535 or larger than 2^32-1.
-	// If the value is outside this range, a default value will be
-	// used instead.
-	MaxUploadBufferPerConnection int32
-
-	// MaxUploadBufferPerStream is the size of the initial flow control
-	// window for each stream. The HTTP/2 spec does not allow this to
-	// be larger than 2^32-1. If the value is zero or larger than the
-	// maximum, a default value will be used instead.
-	MaxUploadBufferPerStream int32
 
 	// NewWriteScheduler constructs a write scheduler for a connection.
 	// If nil, a default scheduler is chosen.
