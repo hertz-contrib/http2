@@ -29,4 +29,4 @@ require (
 	google.golang.org/protobuf v1.27.1 // indirect
 )
 
-replace github.com/cloudwego/hertz => github.com/wzekin/hertz v0.0.0-20230110080126-407c2669b8b5
+replace github.com/cloudwego/hertz => github.com/wzekin/hertz v0.0.0-20230112073131-e59ca4ce8a4b

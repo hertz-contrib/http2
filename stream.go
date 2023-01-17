@@ -26,12 +26,8 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/hertz-contrib/http2/hpack"
+	"github.com/hertz-contrib/http2/internal/bytesconv"
 )
-
-type Trailer = []struct {
-	k []byte
-	v []byte
-}
 
 // stream represents a stream. This is the minimal metadata needed by
 // the serve goroutine. Most of the actual stream state is owned by
@@ -89,6 +85,6 @@ func (st *stream) processTrailerHeaders(f *MetaHeadersFrame) error {
 func (st *stream) copyTrailer() {
 	for _, hf := range st.trailer {
 		key := st.sc.canonicalHeader(hf.Name)
-		st.reqCtx.Request.Header.Trailer.Set(key, hf.Value)
+		st.reqCtx.Request.Header.Trailer.UpdateArgBytes(bytesconv.S2b(key), bytesconv.S2b(hf.Value))
 	}
 }

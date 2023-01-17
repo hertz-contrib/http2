@@ -311,7 +311,6 @@ func TestTrailer(t *testing.T) {
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
 	req.SetMethod("GET")
 	req.SetRequestURI("https://127.0.0.1:8893")
-	req.Header.Set("Trailer", "Hertz, foo")
 	req.AppendBodyString("ping")
 
 	for k, v := range wantTrailerHeader {
