@@ -32,7 +32,6 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/http2/hpack"
 	"github.com/hertz-contrib/http2/internal/bytesconv"
-	"github.com/hertz-contrib/http2/internal/bytestr"
 	consts2 "github.com/hertz-contrib/http2/internal/consts"
 )
 
