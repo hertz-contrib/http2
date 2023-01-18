@@ -19,7 +19,9 @@ package factory
 import (
 	"context"
 	"crypto/tls"
+	"net"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -88,4 +90,48 @@ func TestContentEncoding(t *testing.T) {
 	c.Do(context.Background(), req, rsp)
 	assert.DeepEqual(t, "gzip", string(rsp.Header.ContentEncoding()))
 	assert.DeepEqual(t, "", string(rsp.Header.Server()))
+}
+
+func TestServerIdleTimeout(t *testing.T) {
+	var acceptCount int32 = 0
+	h := server.New(
+		server.WithHostPorts(":8890"),
+		server.WithH2C(true),
+		server.WithOnAccept(func(conn net.Conn) context.Context {
+			atomic.AddInt32(&acceptCount, 1)
+			return context.Background()
+		}))
+
+	// register http2 server factory
+	h.AddProtocol("h2", NewServerFactory())
+
+	h.POST("/", func(c context.Context, ctx *app.RequestContext) {
+		ctx.SetBodyString("pong")
+	})
+	go h.Spin()
+	time.Sleep(time.Second)
+
+	c, _ := client.NewClient()
+	c.SetClientFactory(NewClientFactory(config.WithAllowHTTP(true)))
+	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
+	req.SetMethod("POST")
+	req.SetRequestURI("http://127.0.0.1:8890")
+
+	// first request, acceptCount + 1
+	c.Do(context.Background(), req, rsp)
+	assert.DeepEqual(t, int32(1), atomic.LoadInt32(&acceptCount))
+
+	time.Sleep(time.Second)
+
+	// second request, the connection is alive
+	rsp.Reset()
+	c.Do(context.Background(), req, rsp)
+	assert.DeepEqual(t, int32(1), atomic.LoadInt32(&acceptCount))
+
+	time.Sleep(time.Second * 10)
+
+	// third request, the connection is released, acceptCount + 1
+	rsp.Reset()
+	c.Do(context.Background(), req, rsp)
+	assert.DeepEqual(t, int32(2), atomic.LoadInt32(&acceptCount))
 }

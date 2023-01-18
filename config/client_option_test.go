@@ -34,7 +34,7 @@ func TestClientOptions(t *testing.T) {
 	assert.DeepEqual(t, uint32(0), options.MaxHeaderListSize)
 	assert.DeepEqual(t, false, options.DisableKeepAlive)
 	assert.DeepEqual(t, time.Second, options.DialTimeout)
-	assert.DeepEqual(t, time.Duration(0), options.MaxIdleConnDuration)
+	assert.DeepEqual(t, 10*time.Second, options.MaxIdleConnDuration)
 
 	options = NewClientConfig(
 		WithStrictMaxConcurrentStreams(true),
