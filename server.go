@@ -1683,7 +1683,7 @@ func (sc *serverConn) newStream(id, pusherID uint32, state streamState) *stream 
 	reqCtx.SetConn(sc.rawConn)
 	reqCtx.Request.Header.SetProtocol(consts.HTTP20)
 	reqCtx.Request.Header.InitContentLengthWithValue(-1)
-	baseCtx, cancel := context.WithCancel(context.Background())
+	baseCtx, cancel := context.WithCancel(sc.baseCtx)
 
 	st := &stream{
 		sc:        sc,
