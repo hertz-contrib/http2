@@ -1683,15 +1683,13 @@ func (sc *serverConn) newStream(id, pusherID uint32, state streamState) *stream 
 	reqCtx.SetConn(sc.rawConn)
 	reqCtx.Request.Header.SetProtocol(consts.HTTP20)
 	reqCtx.Request.Header.InitContentLengthWithValue(-1)
-	baseCtx, cancel := context.WithCancel(sc.baseCtx)
 
 	st := &stream{
-		sc:        sc,
-		id:        id,
-		state:     state,
-		reqCtx:    reqCtx,
-		cancelCtx: cancel,
-		baseCtx:   baseCtx,
+		sc:      sc,
+		id:      id,
+		state:   state,
+		reqCtx:  reqCtx,
+		baseCtx: sc.baseCtx,
 	}
 	st.cw.Init()
 	st.flow.conn = &sc.flow // link to conn-level counter
@@ -1848,7 +1846,6 @@ func (sc *serverConn) newWriterAndRequestNoBody(st *stream) (*responseWriter, er
 func (sc *serverConn) runHandler(rw *responseWriter, reqCtx *app.RequestContext, handler app.HandlerFunc) {
 	didPanic := true
 	defer func() {
-		rw.rws.stream.cancelCtx()
 		if didPanic {
 			e := recover()
 			sc.writeFrameFromHandler(FrameWriteRequest{

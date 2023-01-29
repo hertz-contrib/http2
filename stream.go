@@ -41,13 +41,12 @@ type Trailer = []struct {
 // responseWriter's state field.
 type stream struct {
 	// immutable:
-	sc        *serverConn
-	id        uint32
-	body      *pipe       // non-nil if expecting DATA frames
-	cw        closeWaiter // closed wait stream transitions to closed state
-	reqCtx    *app.RequestContext
-	baseCtx   context.Context
-	cancelCtx func()
+	sc      *serverConn
+	id      uint32
+	body    *pipe       // non-nil if expecting DATA frames
+	cw      closeWaiter // closed wait stream transitions to closed state
+	reqCtx  *app.RequestContext
+	baseCtx context.Context
 
 	// owned by serverConn's serve loop:
 	bodyBytes        int64 // body bytes seen so far
