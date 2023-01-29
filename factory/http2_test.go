@@ -277,7 +277,7 @@ func TestTrailer(t *testing.T) {
 
 	h.GET("/", func(c context.Context, ctx *app.RequestContext) {
 		for k := range wantTrailerHeader {
-			actual_value := ctx.Request.Header.Trailer.Get(k)
+			actual_value := ctx.Request.Header.Trailer().Get(k)
 			if actual_value != "" {
 				t.Errorf("Expected empty Header, got: %s", actual_value)
 			}
@@ -286,7 +286,7 @@ func TestTrailer(t *testing.T) {
 		_ = ctx.Request.Body()
 
 		for k, v := range wantTrailerHeader {
-			actual_value := ctx.Request.Header.Trailer.Get(k)
+			actual_value := ctx.Request.Header.Trailer().Get(k)
 			if actual_value != v {
 				t.Errorf("Expected Header %s: %s, got: %s", k, v, actual_value)
 			}
@@ -295,7 +295,7 @@ func TestTrailer(t *testing.T) {
 		ctx.String(http.StatusOK, "pong")
 
 		for k, v := range wantTrailerHeader {
-			ctx.Response.Header.Trailer.Set(k, v)
+			ctx.Response.Header.Trailer().Set(k, v)
 		}
 	})
 
@@ -314,13 +314,13 @@ func TestTrailer(t *testing.T) {
 	req.AppendBodyString("ping")
 
 	for k, v := range wantTrailerHeader {
-		req.Header.Trailer.Set(k, v)
+		req.Header.Trailer().Set(k, v)
 	}
 
 	c.Do(context.Background(), req, rsp)
 
 	for k := range wantTrailerHeader {
-		actual_value := rsp.Header.Trailer.Get(k)
+		actual_value := rsp.Header.Trailer().Get(k)
 		if actual_value != "" {
 			t.Errorf("Expected empty Header, got: %s", actual_value)
 		}
@@ -329,7 +329,7 @@ func TestTrailer(t *testing.T) {
 	_ = rsp.Body()
 
 	for k, v := range wantTrailerHeader {
-		actual_value := rsp.Header.Trailer.Get(k)
+		actual_value := rsp.Header.Trailer().Get(k)
 		if actual_value != v {
 			t.Errorf("Expected Header %s: %s, got: %s", k, v, actual_value)
 		}

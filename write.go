@@ -370,8 +370,8 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, isTrailer boo
 		if len(h.ContentEncoding()) > 0 {
 			encKV(enc, consts2.HeaderEncodingLower, string(h.ContentEncoding()))
 		}
-		if !h.Trailer.Empty() {
-			encKV(enc, consts.HeaderTrailerLower, bytesconv.B2s(h.Trailer.GetBytes()))
+		if !h.Trailer().Empty() {
+			encKV(enc, consts.HeaderTrailerLower, bytesconv.B2s(h.Trailer().GetBytes()))
 		}
 		cookies := h.GetCookies()
 		if len(cookies) > 0 {
@@ -408,7 +408,7 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, isTrailer boo
 			encKV(enc, k, string(kv.GetValue()))
 		}
 	} else {
-		headerKVs := h.Trailer.GetTrailers()
+		headerKVs := h.Trailer().GetTrailers()
 
 		for _, kv := range headerKVs {
 			k := string(kv.GetKey())

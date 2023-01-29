@@ -760,7 +760,7 @@ func (cs *clientStream) abortRequestBodyWrite() {
 func (cs *clientStream) copyTrailer() {
 	for _, hf := range cs.trailer {
 		key := canonicalHeader(hf.Name)
-		cs.res.Header.Trailer.UpdateArgBytes(bytesconv.S2b(key), bytesconv.S2b(hf.Value))
+		cs.res.Header.Trailer().UpdateArgBytes(bytesconv.S2b(key), bytesconv.S2b(hf.Value))
 	}
 }
 
@@ -1457,7 +1457,7 @@ func (cs *clientStream) writeRequestBody(req *protocol.Request) (err error) {
 			cc.wmu.Lock()
 			data := remain[:allowed]
 			remain = remain[allowed:]
-			sentEnd = sawEOF && len(remain) == 0 && req.Header.Trailer.Empty()
+			sentEnd = sawEOF && len(remain) == 0 && req.Header.Trailer().Empty()
 			err = cc.fr.WriteData(cs.ID, sentEnd, data)
 			if err == nil {
 				// TODO(bradfitz): this flush is for latency, not bandwidth.
@@ -1704,17 +1704,17 @@ func (cc *clientConn) encodeTrailer(header *protocol.RequestHeader) ([]byte, err
 	// separate pass before encoding the headers to prevent
 	// modifying the hpack state.
 	hlSize := uint64(0)
-	header.Trailer.VisitAll(func(key, value []byte) {
-		hf := hpack.HeaderField{Name: bytesconv.B2s(key), Value: bytesconv.B2s(value)}
+	for _, arg := range header.Trailer().GetTrailers() {
+		hf := hpack.HeaderField{Name: bytesconv.B2s(arg.GetKey()), Value: bytesconv.B2s(arg.GetValue())}
 		hlSize += uint64(hf.Size())
-	})
+	}
 	if hlSize > cc.peerMaxHeaderListSize {
 		return nil, errRequestHeaderListSize
 	}
-	header.Trailer.VisitAll(func(key, value []byte) {
-		lowKey := lowerHeader(bytesconv.B2s(key))
-		cc.writeHeader(lowKey, bytesconv.B2s(value))
-	})
+	for _, arg := range header.Trailer().GetTrailers() {
+		lowKey := lowerHeader(bytesconv.B2s(arg.GetKey()))
+		cc.writeHeader(lowKey, string(arg.GetValue()))
+	}
 
 	return cc.hbuf.Bytes(), nil
 }

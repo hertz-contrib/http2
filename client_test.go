@@ -5390,7 +5390,7 @@ func TestHostClientWithTrailerHeader(t *testing.T) {
 	}
 
 	for k := range wantTrailerHeader {
-		actual_value := rsp.Header.Trailer.Get(k)
+		actual_value := rsp.Header.Trailer().Get(k)
 		if actual_value != "" {
 			t.Errorf("Expected empty Header, got: %s", actual_value)
 		}
@@ -5399,7 +5399,7 @@ func TestHostClientWithTrailerHeader(t *testing.T) {
 	_ = rsp.Body() // read all body
 
 	for k, v := range wantTrailerHeader {
-		actual_value := rsp.Header.Trailer.Get(k)
+		actual_value := rsp.Header.Trailer().Get(k)
 		if actual_value != v {
 			t.Errorf("Expected Header %s: %s, got: %s", k, v, actual_value)
 		}
