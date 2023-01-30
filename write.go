@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"github.com/cloudwego/hertz/pkg/protocol"
@@ -391,6 +392,18 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, keys []string
 			// Skip it as backup paranoia. Per
 			// golang.org/issue/14048, these should
 			// already be rejected at a higher level.
+			continue
+		}
+
+		if strings.ToLower(k) == "connection" ||
+			strings.ToLower(k) == "proxy-connection" ||
+			strings.ToLower(k) == "transfer-encoding" ||
+			strings.ToLower(k) == "upgrade" ||
+			strings.ToLower(k) == "keep-alive" {
+			// Per 8.1.2.2 Connection-Specific Header
+			// Fields, don't send connection-specific
+			// fields. We have already checked if any
+			// are error-worthy so just ignore the rest.
 			continue
 		}
 		encKV(enc, k, string(kv.GetValue()))
