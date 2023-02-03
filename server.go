@@ -63,6 +63,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/bytebufferpool"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
+	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/network"
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -1842,6 +1843,30 @@ func (sc *serverConn) newWriterAndRequestNoBody(st *stream) (*responseWriter, er
 	return rw, nil
 }
 
+func writeResponseBody(rw *responseWriter, reqCtx *app.RequestContext) error {
+	if reqCtx.Response.IsBodyStream() {
+		vbuf := utils.CopyBufPool.Get()
+		buf := vbuf.([]byte)
+		for {
+			n, err := reqCtx.Response.BodyStream().Read(buf)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+			rw.Write(buf[:n])
+		}
+		utils.CopyBufPool.Put(vbuf)
+	} else {
+		// reqCtx.Response.Body can be no error
+		// will split at FrameWriteRequest's Consume function
+		rw.Write(reqCtx.Response.Body())
+	}
+
+	return nil
+}
+
 // Run on its own goroutine.
 func (sc *serverConn) runHandler(rw *responseWriter, reqCtx *app.RequestContext, handler app.HandlerFunc) {
 	didPanic := true
@@ -1862,15 +1887,14 @@ func (sc *serverConn) runHandler(rw *responseWriter, reqCtx *app.RequestContext,
 			return
 		} else {
 			rw.WriteHeader(reqCtx.Response.StatusCode())
-			step := 1 << 14 // max frame size 16384
-			body := reqCtx.Response.Body()
-			bodyLen := len(body)
-			for i := 0; i < bodyLen; i += step {
-				end := i + step
-				if end > bodyLen {
-					end = bodyLen
-				}
-				rw.Write(body[i:end])
+			err := writeResponseBody(rw, reqCtx)
+			if err != nil {
+				sc.writeFrameFromHandler(FrameWriteRequest{
+					write:  handlerPanicRST{rw.rws.stream.id},
+					stream: rw.rws.stream,
+				})
+				hlog.Errorf("HERTZ: HTTP2 write response body error when serving %v: %v", sc.conn.RemoteAddr(), err)
+				return
 			}
 		}
 		rw.handlerDone()
