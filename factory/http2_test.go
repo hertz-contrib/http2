@@ -19,6 +19,8 @@ package factory
 import (
 	"context"
 	"crypto/tls"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"sync/atomic"
@@ -29,8 +31,10 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/client"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/test/assert"
+	"github.com/cloudwego/hertz/pkg/common/test/mock"
 	"github.com/cloudwego/hertz/pkg/network/standard"
 	"github.com/cloudwego/hertz/pkg/protocol"
+	"github.com/hertz-contrib/http2"
 	"github.com/hertz-contrib/http2/config"
 )
 
@@ -134,4 +138,118 @@ func TestServerIdleTimeout(t *testing.T) {
 	rsp.Reset()
 	c.Do(context.Background(), req, rsp)
 	assert.DeepEqual(t, int32(2), atomic.LoadInt32(&acceptCount))
+}
+
+func getStream(data []byte) io.Reader {
+	reader, writer := io.Pipe()
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		writer.Write(data)
+		writer.Close()
+	}()
+
+	return reader
+}
+
+func getBadStream(data []byte) io.Reader {
+	reader, writer := io.Pipe()
+
+	go func() {
+		writer.Write(data)
+		time.Sleep(100 * time.Millisecond)
+		writer.CloseWithError(errors.New("test error"))
+	}()
+
+	return reader
+}
+
+func testSendStreamBody(t *testing.T, bodySize int) {
+	h := server.New(server.WithHostPorts(":8891"), server.WithH2C(true))
+
+	data := mock.CreateFixedBody(bodySize)
+	// register http2 server factory
+	h.AddProtocol("h2", NewServerFactory())
+
+	h.POST("/", func(c context.Context, ctx *app.RequestContext) {
+		ctx.SetBodyStream(getStream(data), -1)
+	})
+	go h.Spin()
+	time.Sleep(time.Second)
+
+	c, _ := client.NewClient()
+	c.SetClientFactory(NewClientFactory(config.WithAllowHTTP(true)))
+	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
+	req.SetMethod("POST")
+	req.SetRequestURI("http://127.0.0.1:8891")
+	c.Do(context.Background(), req, rsp)
+	assert.DeepEqual(t, string(data), string(rsp.Body()))
+
+	h.Close()
+}
+
+func TestSendStreamBody(t *testing.T) {
+	// zero-size body
+	testSendStreamBody(t, 0)
+
+	// small-size body
+	testSendStreamBody(t, 5)
+
+	// medium-size body
+	testSendStreamBody(t, 43488)
+
+	// big body
+	testSendStreamBody(t, 3*1024*1024)
+
+	// smaller body after big one
+	testSendStreamBody(t, 12343)
+}
+
+func testSendBadStreamBody(t *testing.T, bodySize int) {
+	h := server.New(server.WithHostPorts(":8892"), server.WithH2C(true))
+
+	data := mock.CreateFixedBody(bodySize)
+	// register http2 server factory
+	h.AddProtocol("h2", NewServerFactory())
+
+	h.POST("/", func(c context.Context, ctx *app.RequestContext) {
+		ctx.SetBodyStream(getBadStream(data), -1)
+	})
+	go h.Spin()
+	time.Sleep(time.Second)
+
+	c, _ := client.NewClient()
+	c.SetClientFactory(NewClientFactory(config.WithAllowHTTP(true)))
+	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
+	req.SetMethod("POST")
+	req.SetRequestURI("http://127.0.0.1:8892")
+	err := c.Do(context.Background(), req, rsp)
+	if err == nil {
+		_, err = rsp.BodyE()
+	}
+
+	streamErr, ok := err.(http2.StreamError)
+	if !ok {
+		t.Error("the error should be http2.StreamError")
+	}
+	assert.DeepEqual(t, http2.ErrCodeInternal, streamErr.Code)
+
+	h.Close()
+}
+
+func TestSendBadStreamBody(t *testing.T) {
+	// zero-size body
+	testSendBadStreamBody(t, 0)
+
+	// small-size body
+	testSendBadStreamBody(t, 5)
+
+	// medium-size body
+	testSendBadStreamBody(t, 43488)
+
+	// big body
+	testSendBadStreamBody(t, 3*1024*1024)
+
+	// smaller body after big one
+	testSendBadStreamBody(t, 12343)
 }
