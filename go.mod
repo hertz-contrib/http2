@@ -3,7 +3,7 @@ module github.com/hertz-contrib/http2
 go 1.18
 
 require (
-	github.com/cloudwego/hertz v0.5.0
+	github.com/cloudwego/hertz v0.5.3-0.20230208034101-28c304eb7082
 	golang.org/x/net v0.5.0
 )
 
@@ -28,5 +28,3 @@ require (
 	golang.org/x/text v0.6.0 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
 )
-
-replace github.com/cloudwego/hertz => github.com/wzekin/hertz v0.0.0-20230118061204-38675f9e8d2f

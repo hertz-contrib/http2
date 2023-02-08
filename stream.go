@@ -69,7 +69,7 @@ func (st *stream) processTrailerHeaders(f *MetaHeadersFrame) error {
 	sc := st.sc
 	sc.serveG.check()
 	if st.gotTrailerHeader {
-		return ConnectionError(ErrCodeProtocol)
+		return streamError(st.id, ErrCodeProtocol)
 	}
 	st.gotTrailerHeader = true
 	if !f.StreamEnded() {
