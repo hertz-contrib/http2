@@ -25,12 +25,8 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/hertz-contrib/http2/internal/bytesconv"
 )
-
-type Trailer = []struct {
-	k []byte
-	v []byte
-}
 
 // stream represents a stream. This is the minimal metadata needed by
 // the serve goroutine. Most of the actual stream state is owned by
@@ -61,27 +57,19 @@ type stream struct {
 	rw               *responseWriter
 	handler          app.HandlerFunc
 
-	// FIXME IMPL Trailer
-	// trailer    Trailer // accumulated trailers
-	// reqTrailer Trailer // handler's Request.Trailer
+	trailer []trailerKV
 }
 
-// copyTrailersToHandlerRequest is run in the Handler's goroutine in
-// its Request.Body.Read just before it gets io.EOF.
-func (st *stream) copyTrailersToHandlerRequest() {
-	//for k, vv := range st.trailer {
-	//	if _, ok := st.reqTrailer[k]; ok {
-	//		// Only copy it over it was pre-declared.
-	//		st.reqTrailer[k] = vv
-	//	}
-	//}
+type trailerKV struct {
+	key   string
+	value string
 }
 
 func (st *stream) processTrailerHeaders(f *MetaHeadersFrame) error {
 	sc := st.sc
 	sc.serveG.check()
 	if st.gotTrailerHeader {
-		return ConnectionError(ErrCodeProtocol)
+		return streamError(st.id, ErrCodeProtocol)
 	}
 	st.gotTrailerHeader = true
 	if !f.StreamEnded() {
@@ -92,6 +80,20 @@ func (st *stream) processTrailerHeaders(f *MetaHeadersFrame) error {
 		return streamError(st.id, ErrCodeProtocol)
 	}
 
+	if st.trailer == nil {
+		st.trailer = make([]trailerKV, 0, len(f.RegularFields()))
+	}
+	for _, hf := range f.RegularFields() {
+		key := st.sc.canonicalHeader(hf.Name)
+		st.trailer = append(st.trailer, trailerKV{key, hf.Value})
+	}
+
 	st.endStream()
 	return nil
+}
+
+func (st *stream) copyTrailer() {
+	for _, kv := range st.trailer {
+		st.reqCtx.Request.Header.Trailer().UpdateArgBytes(bytesconv.S2b(kv.key), bytesconv.S2b(kv.value))
+	}
 }

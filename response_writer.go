@@ -62,12 +62,11 @@ type responseWriterState struct {
 	// TODO: adjust buffer writing sizes based on server config, frame size updates from peer, etc
 	bw *bufio.Writer // writing to a chunkWriter{this *responseWriterState}
 
-	trailers    []string // set in writeChunk
-	status      int      // status code passed to WriteHeaders
-	wroteHeader bool     // WriteHeaders called (explicitly or implicitly). Not necessarily sent to user yet.
-	sentHeader  bool     // have we sent the header frame?
-	handlerDone bool     // handler has finished
-	dirty       bool     // a Write failed; don't reuse this responseWriterState
+	status      int  // status code passed to WriteHeaders
+	wroteHeader bool // WriteHeaders called (explicitly or implicitly). Not necessarily sent to user yet.
+	sentHeader  bool // have we sent the header frame?
+	handlerDone bool // handler has finished
+	dirty       bool // a Write failed; don't reuse this responseWriterState
 
 	sentContentLen int64 // non-zero if handler set a Content-Length header
 	wroteBytes     int64
@@ -80,17 +79,8 @@ type chunkWriter struct{ rws *responseWriterState }
 
 func (cw chunkWriter) Write(p []byte) (n int, err error) { return cw.rws.writeChunk(p) }
 
-func (rws *responseWriterState) hasTrailers() bool { return len(rws.trailers) > 0 }
-
-func (rws *responseWriterState) hasNonemptyTrailers() bool {
-	// TODO Not support trailers yet
-
-	// for _, trailer := range rws.trailers {
-	// 	if _, ok := rws.handlerHeader[trailer]; ok {
-	// 		return true
-	// 	}
-	// }
-	return false
+func (rws *responseWriterState) hasTrailers() bool {
+	return !rws.stream.reqCtx.Response.Header.Trailer().Empty()
 }
 
 // writeChunk writes chunks from the bufio.Writer. But because
@@ -107,7 +97,7 @@ func (rws *responseWriterState) writeChunk(p []byte) (n int, err error) {
 	reqCtx := rws.stream.reqCtx
 	isHeadResp := bytes.Equal(reqCtx.Method(), bytestr.StrHead)
 	if !rws.sentHeader {
-		header := &rws.stream.reqCtx.Response.Header
+		header := &reqCtx.Response.Header
 		rws.sentHeader = true
 
 		var clen string
@@ -179,7 +169,7 @@ func (rws *responseWriterState) writeChunk(p []byte) (n int, err error) {
 
 	// only send trailers if they have actually been defined by the
 	// server handler.
-	hasNonemptyTrailers := rws.hasNonemptyTrailers()
+	hasNonemptyTrailers := rws.hasTrailers()
 	endStream := rws.handlerDone && !hasNonemptyTrailers
 	if len(p) > 0 || endStream {
 		// only send a 0 byte DATA frame if we're ending the stream.
@@ -189,9 +179,19 @@ func (rws *responseWriterState) writeChunk(p []byte) (n int, err error) {
 		}
 	}
 
-	// if rws.handlerDone && hasNonemptyTrailers {
-	// TODO send trailers
-	// }
+	if rws.handlerDone && hasNonemptyTrailers {
+		header := &reqCtx.Response.Header
+		err = rws.conn.writeHeaders(rws.stream, &writeResHeaders{
+			streamID:  rws.stream.id,
+			h:         header,
+			isTrailer: true,
+			endStream: true,
+		})
+		if err != nil {
+			rws.dirty = true
+		}
+		return len(p), err
+	}
 	return len(p), nil
 }
 

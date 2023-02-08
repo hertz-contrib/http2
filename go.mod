@@ -3,7 +3,7 @@ module github.com/hertz-contrib/http2
 go 1.18
 
 require (
-	github.com/cloudwego/hertz v0.5.0
+	github.com/cloudwego/hertz v0.5.3-0.20230208034101-28c304eb7082
 	golang.org/x/net v0.5.0
 )
 

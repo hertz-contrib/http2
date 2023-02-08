@@ -253,3 +253,85 @@ func TestSendBadStreamBody(t *testing.T) {
 	// smaller body after big one
 	testSendBadStreamBody(t, 12343)
 }
+
+func TestTrailer(t *testing.T) {
+	cfg := &tls.Config{
+		MinVersion:       tls.VersionTLS12,
+		CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256},
+	}
+	cert, err := tls.LoadX509KeyPair("../testdata/certificate/server.crt", "../testdata/certificate/server.key")
+	assert.Nil(t, err)
+	cfg.Certificates = append(cfg.Certificates, cert)
+	h := server.New(server.WithHostPorts(":8893"), server.WithALPN(true), server.WithTLS(cfg))
+
+	wantTrailerHeader := map[string]string{
+		"Hertz": "test",
+		"foo":   "bar",
+	}
+
+	// register http2 server factory
+	h.AddProtocol("h2", NewServerFactory(
+		config.WithReadTimeout(time.Minute),
+		config.WithDisableKeepAlive(false)))
+	cfg.NextProtos = append(cfg.NextProtos, "h2")
+
+	h.GET("/", func(c context.Context, ctx *app.RequestContext) {
+		for k := range wantTrailerHeader {
+			actual_value := ctx.Request.Header.Trailer().Get(k)
+			if actual_value != "" {
+				t.Errorf("Expected empty Header, got: %s", actual_value)
+			}
+		}
+
+		_ = ctx.Request.Body()
+
+		for k, v := range wantTrailerHeader {
+			actual_value := ctx.Request.Header.Trailer().Get(k)
+			if actual_value != v {
+				t.Errorf("Expected Header %s: %s, got: %s", k, v, actual_value)
+			}
+		}
+
+		ctx.String(http.StatusOK, "pong")
+
+		for k, v := range wantTrailerHeader {
+			ctx.Response.Header.Trailer().Set(k, v)
+		}
+	})
+
+	go h.Spin()
+
+	time.Sleep(time.Second)
+
+	c, _ := client.NewClient()
+	c.SetClientFactory(NewClientFactory(
+		config.WithDialer(standard.NewDialer()),
+		config.WithTLSConfig(&tls.Config{InsecureSkipVerify: true})))
+
+	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
+	req.SetMethod("GET")
+	req.SetRequestURI("https://127.0.0.1:8893")
+	req.AppendBodyString("ping")
+
+	for k, v := range wantTrailerHeader {
+		req.Header.Trailer().Set(k, v)
+	}
+
+	c.Do(context.Background(), req, rsp)
+
+	for k := range wantTrailerHeader {
+		actual_value := rsp.Header.Trailer().Get(k)
+		if actual_value != "" {
+			t.Errorf("Expected empty Header, got: %s", actual_value)
+		}
+	}
+
+	_ = rsp.Body()
+
+	for k, v := range wantTrailerHeader {
+		actual_value := rsp.Header.Trailer().Get(k)
+		if actual_value != v {
+			t.Errorf("Expected Header %s: %s, got: %s", k, v, actual_value)
+		}
+	}
+}

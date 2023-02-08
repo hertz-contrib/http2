@@ -1529,7 +1529,7 @@ func (st *stream) endStream() {
 		st.body.CloseWithError(fmt.Errorf("request declared a Content-Length of %d but only wrote %d bytes",
 			st.declBodyBytes, st.bodyBytes))
 	} else {
-		st.body.closeWithErrorAndCode(io.EOF, st.copyTrailersToHandlerRequest)
+		st.body.closeWithErrorAndCode(io.EOF, st.copyTrailer)
 		st.body.CloseWithError(io.EOF)
 	}
 	st.state = stateHalfClosedRemote
@@ -1801,26 +1801,6 @@ func (sc *serverConn) newWriterAndRequestNoBody(st *stream) (*responseWriter, er
 	if needsContinue {
 		reqCtx.Request.Header.DelBytes(bytestr.StrExpect)
 	}
-
-	// TODO Trailer
-	// Setup Trailers
-	//var trailer http.Header
-	//for _, v := range rp.header["Trailer"] {
-	//	for _, key := range strings.Split(v, ",") {
-	//		key = http.CanonicalHeaderKey(strings.TrimSpace(key))
-	//		switch key {
-	//		case "Transfer-Encoding", "Trailer", "Content-Length":
-	//			// Bogus. (copy of http1 rules)
-	//			// Ignore.
-	//		default:
-	//			if trailer == nil {
-	//				trailer = make(http.Header)
-	//			}
-	//			trailer[key] = nil
-	//		}
-	//	}
-	//}
-	//delete(rp.header, "Trailer")
 
 	body := &requestBody{
 		conn:          sc,
@@ -2185,10 +2165,10 @@ func checkValidHTTP2RequestHeaders(h *protocol.RequestHeader) error {
 		}
 	}
 
-	// FIXME: 现在Hertz不支持Trailer，先不管
-	//if len(te) > 0 && (len(te) > 1 || (te[0] != "trailers" && te[0] != "")) {
-	//	return errors.New(`request header "TE" may only be "trailers" in HTTP/2`)
-	//}
+	te := h.Get(consts.HeaderTE)
+	if te != "" && te != "trailer" {
+		return errors.New(`request header "TE" may only be "trailers" in HTTP/2`)
+	}
 	return nil
 }
 
