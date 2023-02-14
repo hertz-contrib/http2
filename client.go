@@ -233,6 +233,7 @@ func (cc *clientConn) RoundTrip(ctx context.Context, req *protocol.Request, rsp 
 		abort:                make(chan struct{}),
 		respHeaderRecv:       make(chan struct{}),
 		donec:                make(chan struct{}),
+		sendDone:             make(chan struct{}),
 		res:                  rsp,
 	}
 
@@ -697,6 +698,7 @@ type clientStream struct {
 	// owned by writeRequest:
 	sentEndStream bool // sent an END_STREAM flag to the peer
 	sentHeaders   bool
+	sendDone      chan struct{} // will close when send all data
 
 	// owned by clientConnReadLoop:
 	firstByte    bool  // got the first response byte
@@ -1143,6 +1145,15 @@ func (cs *clientStream) writeRequest(req *protocol.Request) (err error) {
 	cc := cs.cc
 	ctx := cs.ctx
 
+	hasSent := false
+	req.SetSendDone(cs.sendDone)
+
+	defer func() {
+		if !hasSent {
+			close(cs.sendDone)
+		}
+	}()
+
 	if err := checkConnHeaders(req); err != nil {
 		return err
 	}
@@ -1197,6 +1208,9 @@ func (cs *clientStream) writeRequest(req *protocol.Request) (err error) {
 			cs.sentEndStream = true
 		}
 	}
+
+	hasSent = true
+	close(cs.sendDone)
 
 	// Wait until the peer half-closes its end of the stream,
 	// or until the request is aborted (via context, error, or otherwise),

@@ -144,7 +144,7 @@ func getStream(data []byte) io.Reader {
 	reader, writer := io.Pipe()
 
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 		writer.Write(data)
 		writer.Close()
 	}()
@@ -334,4 +334,56 @@ func TestTrailer(t *testing.T) {
 			t.Errorf("Expected Header %s: %s, got: %s", k, v, actual_value)
 		}
 	}
+}
+
+func TestReleaseRequestWait(t *testing.T) {
+	h := server.New(server.WithHostPorts(":8894"), server.WithH2C(true))
+
+	// register http2 server factory
+	h.AddProtocol("h2", NewServerFactory())
+
+	h.POST("/", func(c context.Context, ctx *app.RequestContext) {
+		ctx.SetBodyStream(getStream([]byte("hello world")), -1)
+	})
+	go h.Spin()
+	time.Sleep(time.Second)
+
+	c, _ := client.NewClient()
+	c.SetClientFactory(NewClientFactory(config.WithAllowHTTP(true)))
+	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
+	req.SetMethod("POST")
+	req.SetRequestURI("http://127.0.0.1:8894")
+	req.SetBodyStream(getStream([]byte("hello world")), -1)
+	err := c.Do(context.Background(), req, rsp)
+	if err != nil {
+		t.Errorf("get error on send req: %v", err)
+	}
+
+	protocol.ReleaseRequest(req)
+}
+
+func TestReleaseRequestAbortSend(t *testing.T) {
+	h := server.New(server.WithHostPorts(":8895"), server.WithH2C(true))
+
+	// register http2 server factory
+	h.AddProtocol("h2", NewServerFactory())
+
+	h.POST("/", func(c context.Context, ctx *app.RequestContext) {
+		ctx.SetBodyString("hello world")
+	})
+	go h.Spin()
+	time.Sleep(time.Second)
+
+	c, _ := client.NewClient()
+	c.SetClientFactory(NewClientFactory(config.WithAllowHTTP(true)))
+	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
+	req.SetMethod("POST")
+	req.SetRequestURI("http://127.0.0.1:8895")
+	req.SetBodyStream(getStream([]byte("hello world")), -1)
+	err := c.Do(context.Background(), req, rsp)
+	if err != nil {
+		t.Errorf("get error on send req: %v", err)
+	}
+
+	protocol.ReleaseRequest(req)
 }
