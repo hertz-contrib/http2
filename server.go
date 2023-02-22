@@ -124,7 +124,7 @@ type Server struct {
 }
 
 func (s *Server) initialConnRecvWindowSize() int32 {
-	if s.MaxUploadBufferPerConnection > initialWindowSize {
+	if s.MaxUploadBufferPerConnection >= initialWindowSize {
 		return s.MaxUploadBufferPerConnection
 	}
 	return 1 << 20
@@ -558,7 +558,7 @@ func (sc *serverConn) writeFrameAsync(wr FrameWriteRequest) {
 func (sc *serverConn) closeAllStreamsOnConnClose() {
 	sc.serveG.check()
 	for _, st := range sc.streams {
-		sc.closeStream(st, errClientDisconnected)
+		sc.closeStream(st, errClientDisconnected, true)
 	}
 }
 
@@ -991,17 +991,17 @@ func (sc *serverConn) wroteFrame(res frameWriteResult) {
 			// a complete response.
 			sc.resetStream(streamError(st.id, ErrCodeNo))
 		case stateHalfClosedRemote:
-			sc.closeStream(st, errHandlerComplete)
+			sc.closeStream(st, errHandlerComplete, false)
 		}
 	} else {
 		switch v := wr.write.(type) {
 		case StreamError:
 			// st may be unknown if the RST_STREAM was generated to reject bad input.
 			if st, ok := sc.streams[v.StreamID]; ok {
-				sc.closeStream(st, v)
+				sc.closeStream(st, v, false)
 			}
 		case handlerPanicRST:
-			sc.closeStream(wr.stream, errHandlerPanicked)
+			sc.closeStream(wr.stream, errHandlerPanicked, false)
 		}
 	}
 
@@ -1097,6 +1097,9 @@ func (sc *serverConn) startGracefulShutdownInternal() {
 func (sc *serverConn) goAway(code ErrCode) {
 	sc.serveG.check()
 	if sc.inGoAway {
+		if sc.goAwayCode == ErrCodeNo {
+			sc.goAwayCode = code
+		}
 		return
 	}
 	sc.inGoAway = true
@@ -1283,12 +1286,12 @@ func (sc *serverConn) processResetStream(f *RSTStreamFrame) error {
 	}
 	if st != nil {
 		// st.cancelCtx()
-		sc.closeStream(st, streamError(f.StreamID, f.ErrCode))
+		sc.closeStream(st, streamError(f.StreamID, f.ErrCode), true)
 	}
 	return nil
 }
 
-func (sc *serverConn) closeStream(st *stream, err error) {
+func (sc *serverConn) closeStream(st *stream, err error, dirty bool) {
 	sc.serveG.check()
 	if st.state == stateIdle || st.state == stateClosed {
 		panic(fmt.Sprintf("invariant; can't close stream in state %v", st.state))
@@ -1303,6 +1306,13 @@ func (sc *serverConn) closeStream(st *stream, err error) {
 		sc.curClientStreams--
 	}
 	delete(sc.streams, st.id)
+
+	if !dirty {
+		// if call closeStream by wroteFrame, all data has sent, we can release ReqCtx safely
+		st.reqCtx.Reset()
+		sc.engine.ReleaseReqCtx(st.reqCtx)
+	}
+
 	if len(sc.streams) == 0 {
 		if sc.srv.IdleTimeout != 0 {
 			sc.idleTimer.Reset(sc.srv.IdleTimeout)
@@ -1835,16 +1845,20 @@ func writeResponseBody(rw *responseWriter, reqCtx *app.RequestContext) error {
 			if err != nil {
 				return err
 			}
-			rw.Write(buf[:n])
+			_, err = rw.Write(buf[:n])
+			if err != nil {
+				return err
+			}
 		}
 		utils.CopyBufPool.Put(vbuf)
+
+		return nil
 	} else {
 		// reqCtx.Response.Body can be no error
 		// will split at FrameWriteRequest's Consume function
-		rw.Write(reqCtx.Response.Body())
+		_, err := rw.Write(reqCtx.Response.Body())
+		return err
 	}
-
-	return nil
 }
 
 // Run on its own goroutine.

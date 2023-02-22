@@ -5369,7 +5369,6 @@ func TestHostClientWithTrailerHeader(t *testing.T) {
 		for k, v := range wantTrailerHeader {
 			ctx.Response.Header.Trailer().Set(k, v)
 		}
-
 	}, optOnlyServer)
 	defer st.Close()
 	u, err := url.Parse("https://" + st.url)
