@@ -23,7 +23,6 @@ package http2
 import (
 	"flag"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -52,18 +51,20 @@ func TestSettingString(t *testing.T) {
 	}
 }
 
+type logFilter interface {
+	IsFilter(p string) bool
+}
+
 type twriter struct {
-	t  testing.TB
-	st *serverTester // optional
+	t      testing.TB
+	filter logFilter
 }
 
 func (w twriter) Write(p []byte) (n int, err error) {
-	if w.st != nil {
+	if w.filter != nil {
 		ps := string(p)
-		for _, phrase := range w.st.logFilter {
-			if strings.Contains(ps, phrase) {
-				return len(p), nil // no logging
-			}
+		if w.filter.IsFilter(ps) {
+			return len(p), nil // no logging
 		}
 	}
 	w.t.Logf("%s", p)

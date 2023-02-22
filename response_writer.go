@@ -322,8 +322,6 @@ func (w *responseWriter) handlerDone() {
 	dirty := rws.dirty
 	rws.handlerDone = true
 	w.Flush()
-	w.rws.stream.reqCtx.Reset()
-	w.rws.stream.sc.engine.ReleaseReqCtx(w.rws.stream.reqCtx)
 	w.rws = nil
 	if !dirty {
 		// Only recycle the pool if all prior Write calls to

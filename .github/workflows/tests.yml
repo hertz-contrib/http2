@@ -5,6 +5,8 @@ on: [push, pull_request]
 jobs:
   lint-and-ut:
     runs-on: self-hosted
+    env:
+      DEBUG_HTTP2_GOROUTINES: 1
     steps:
       - uses: actions/checkout@v3
 

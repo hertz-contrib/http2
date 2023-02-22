@@ -47,6 +47,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/client/retry"
 	"github.com/cloudwego/hertz/pkg/network"
 	"github.com/cloudwego/hertz/pkg/network/dialer"
@@ -260,12 +261,12 @@ func TestHostClientH2c(t *testing.T) {
 
 func TestHostClient(t *testing.T) {
 	const body = "sup"
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, body)
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+		ctx.WriteString(body)
 	}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,14 +330,12 @@ func TestHostClient(t *testing.T) {
 }
 
 func testHostClientReusesConns(t *testing.T, wantSame bool, modReq func(*protocol.Request)) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, r.RemoteAddr)
-	}, optOnlyServer, func(c net.Conn, st http.ConnState) {
-		t.Logf("conn %v is now state %v", c.RemoteAddr(), st)
-	})
+	st := newHertzServerTester(t, func(ctx context.Context, c *app.RequestContext) {
+		c.WriteString(c.RemoteAddr().String())
+	}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +353,7 @@ func testHostClientReusesConns(t *testing.T, wantSame bool, modReq func(*protoco
 
 	get := func() string {
 		req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-		req.SetRequestURI(st.ts.URL)
+		req.SetRequestURI(u.String())
 		modReq(req)
 		err = tr.Do(context.Background(), req, rsp)
 		if err != nil {
@@ -484,7 +483,7 @@ func (c *testNetConn) Close() error {
 // Tests that the Transport only keeps one pending dial open per destination address.
 // https://golang.org/issue/13397
 func TestHostClientGroupsPendingDials(t *testing.T) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
 	}, optOnlyServer)
 	defer st.Close()
 	var (
@@ -493,7 +492,7 @@ func TestHostClientGroupsPendingDials(t *testing.T) {
 		closeCount int
 	)
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -527,7 +526,7 @@ func TestHostClientGroupsPendingDials(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-			req.SetRequestURI(st.ts.URL)
+			req.SetRequestURI(u.String())
 			err := tr.Do(context.Background(), req, rsp)
 			if err != nil {
 				t.Error(err)
@@ -547,7 +546,7 @@ func TestHostClientGroupsPendingDials(t *testing.T) {
 
 func TestHostClientAbortClosesPipes(t *testing.T) {
 	shutdown := make(chan struct{})
-	st := newServerTester(t,
+	st := newStandardServerTester(t,
 		func(w http.ResponseWriter, r *http.Request) {
 			w.(http.Flusher).Flush()
 			<-shutdown
@@ -575,7 +574,7 @@ func TestHostClientAbortClosesPipes(t *testing.T) {
 		}
 
 		req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-		req.SetRequestURI(st.ts.URL)
+		req.SetRequestURI(u.String())
 		err = tr.Do(context.Background(), req, rsp)
 		if err != nil {
 			errCh <- err
@@ -605,16 +604,18 @@ func TestHostClientAbortClosesPipes(t *testing.T) {
 // TODO: merge this with TestHostClientBody to make TestHostClientRequest? This
 // could be a table-driven test with extra goodies.
 func TestHostClientPath(t *testing.T) {
-	gotc := make(chan *url.URL, 1)
-	st := newServerTester(t,
-		func(w http.ResponseWriter, r *http.Request) {
-			gotc <- r.URL
+	gotc := make(chan *protocol.URI, 1)
+	st := newHertzServerTester(t,
+		func(c context.Context, ctx *app.RequestContext) {
+			url := new(protocol.URI)
+			ctx.Request.URI().CopyTo(url)
+			gotc <- url
 		},
 		optOnlyServer,
 	)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,7 +634,7 @@ func TestHostClientPath(t *testing.T) {
 		path  = "/testpath"
 		query = "q=1"
 	)
-	surl := st.ts.URL + path + "?" + query
+	surl := "https://" + st.url + path + "?" + query
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
 	req.SetMethod(consts.MethodPost)
 	req.SetRequestURI(surl)
@@ -642,11 +643,11 @@ func TestHostClientPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := <-gotc
-	if got.Path != path {
-		t.Errorf("Read Path = %q; want %q", got.Path, path)
+	if string(got.Path()) != path {
+		t.Errorf("Read Path = %q; want %q", string(got.Path()), path)
 	}
-	if got.RawQuery != query {
-		t.Errorf("Read RawQuery = %q; want %q", got.RawQuery, query)
+	if string(got.QueryString()) != query {
+		t.Errorf("Read RawQuery = %q; want %q", string(got.QueryString()), query)
 	}
 }
 
@@ -677,18 +678,18 @@ func TestHostClientBody(t *testing.T) {
 	}
 
 	type reqInfo struct {
-		req   *http.Request
-		slurp []byte
-		err   error
+		contentLength int
+		slurp         []byte
+		err           error
 	}
 	gotc := make(chan reqInfo, 1)
-	st := newServerTester(t,
-		func(w http.ResponseWriter, r *http.Request) {
-			slurp, err := ioutil.ReadAll(r.Body)
+	st := newHertzServerTester(t,
+		func(c context.Context, ctx *app.RequestContext) {
+			slurp, err := ctx.Request.BodyE()
 			if err != nil {
 				gotc <- reqInfo{err: err}
 			} else {
-				gotc <- reqInfo{req: r, slurp: slurp}
+				gotc <- reqInfo{contentLength: ctx.Request.Header.ContentLength(), slurp: slurp}
 			}
 		},
 		optOnlyServer,
@@ -696,7 +697,7 @@ func TestHostClientBody(t *testing.T) {
 	defer st.Close()
 
 	for i, tt := range bodyTests {
-		u, err := url.Parse(st.ts.URL)
+		u, err := url.Parse("https://" + st.url)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -713,7 +714,7 @@ func TestHostClientBody(t *testing.T) {
 
 		var body io.Reader = strings.NewReader(tt.body)
 		req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-		req.SetRequestURI(st.ts.URL)
+		req.SetRequestURI(u.String())
 		req.SetMethod(consts.MethodPost)
 		req.SetBodyStream(body, len(tt.body))
 		err = tr.Do(context.Background(), req, rsp)
@@ -728,9 +729,9 @@ func TestHostClientBody(t *testing.T) {
 		if got := string(ri.slurp); got != tt.body {
 			t.Errorf("#%d: Read body mismatch.\n got: %q (len %d)\nwant: %q (len %d)", i, shortString(got), len(got), shortString(tt.body), len(tt.body))
 		}
-		wantLen := int64(len(tt.body))
-		if ri.req.ContentLength != wantLen {
-			t.Errorf("#%d. handler got ContentLength = %v; want %v", i, ri.req.ContentLength, wantLen)
+		wantLen := int(len(tt.body))
+		if ri.contentLength != wantLen {
+			t.Errorf("#%d. handler got ContentLength = %v; want %v", i, ri.contentLength, wantLen)
 		}
 	}
 }
@@ -747,8 +748,8 @@ func TestHostClientDialTLS(t *testing.T) {
 	var mu sync.Mutex // guards following
 	var gotReq, didDial bool
 
-	ts := newServerTester(t,
-		func(w http.ResponseWriter, r *http.Request) {
+	ts := newHertzServerTester(t,
+		func(c context.Context, ctx *app.RequestContext) {
 			mu.Lock()
 			gotReq = true
 			mu.Unlock()
@@ -757,7 +758,7 @@ func TestHostClientDialTLS(t *testing.T) {
 	)
 	defer ts.Close()
 
-	u, err := url.Parse(ts.ts.URL)
+	u, err := url.Parse("https://" + ts.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -782,7 +783,7 @@ func TestHostClientDialTLS(t *testing.T) {
 	defer tr.CloseIdleConnections()
 
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-	req.SetRequestURI(ts.ts.URL)
+	req.SetRequestURI(u.String())
 	err = tr.Do(context.Background(), req, rsp)
 	if err != nil {
 		t.Fatal(err)
@@ -1103,7 +1104,7 @@ func testHostClientReqBodyAfterResponse(t *testing.T, status int) {
 
 // See golang.org/issue/13444
 func TestHostClientFullDuplex(t *testing.T) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
+	st := newStandardServerTester(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200) // redundant but for clarity
 		w.(http.Flusher).Flush()
 		io.Copy(flushWriter{w}, capitalizeReader{r.Body})
@@ -1128,7 +1129,7 @@ func TestHostClientFullDuplex(t *testing.T) {
 
 	pr, pw := io.Pipe()
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-	req.SetRequestURI(st.ts.URL)
+	req.SetRequestURI(u.String())
 	req.SetMethod(consts.MethodPut)
 	req.SetBodyStream(pr, -1)
 
@@ -1164,13 +1165,15 @@ func TestHostClientFullDuplex(t *testing.T) {
 }
 
 func TestHostClientConnectRequest(t *testing.T) {
-	gotc := make(chan *http.Request, 1)
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-		gotc <- r
+	gotc := make(chan *protocol.Request, 1)
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+		req := protocol.AcquireRequest()
+		ctx.Request.CopyTo(req)
+		gotc <- req
 	}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1191,14 +1194,14 @@ func TestHostClientConnectRequest(t *testing.T) {
 	}{
 		{
 			modReq: func(r *protocol.Request) {
-				r.SetRequestURI(st.ts.URL)
+				r.SetRequestURI(u.String())
 				r.SetMethod(consts.MethodConnect)
 			},
 			want: u.Host,
 		},
 		{
 			modReq: func(r *protocol.Request) {
-				r.SetRequestURI(st.ts.URL)
+				r.SetRequestURI(u.String())
 				r.SetMethod(consts.MethodConnect)
 				r.SetHost("example.com:123")
 			},
@@ -1215,14 +1218,14 @@ func TestHostClientConnectRequest(t *testing.T) {
 			continue
 		}
 		result := <-gotc
-		if result.Method != "CONNECT" {
-			t.Errorf("method = %q; want CONNECT", result.Method)
+		if string(result.Method()) != "CONNECT" {
+			t.Errorf("method = %q; want CONNECT", string(result.Method()))
 		}
-		if result.Host != tt.want {
-			t.Errorf("Host = %q; want %q", result.Host, tt.want)
+		if string(result.Host()) != tt.want {
+			t.Errorf("Host = %q; want %q", string(result.Host()), tt.want)
 		}
-		if result.URL.Host != tt.want {
-			t.Errorf("URL.Host = %q; want %q", result.URL.Host, tt.want)
+		if string(result.URI().Host()) != tt.want {
+			t.Errorf("URL.Host = %q; want %q", string(result.URI().Host()), tt.want)
 		}
 	}
 }
@@ -1457,6 +1460,7 @@ code=114 header=114
 //
 //	http://httpwg.org/specs/rfc7540.html#SETTINGS_MAX_HEADER_LIST_SIZE
 //	http://httpwg.org/specs/rfc7540.html#MaxHeaderBlock
+
 func headerListSize(h *protocol.RequestHeader) (size uint32) {
 	h.VisitAll(func(k, v []byte) {
 		hf := hpack.HeaderField{Name: string(k), Value: string(v)}
@@ -1565,7 +1569,7 @@ func TestPadHeaders(t *testing.T) {
 }
 
 func TestHostClientChecksRequestHeaderListSize(t *testing.T) {
-	st := newServerTester(t,
+	st := newStandardServerTester(t,
 		func(w http.ResponseWriter, r *http.Request) {
 			// Consume body & force client to send
 			// trailers before writing response.
@@ -1827,7 +1831,7 @@ func TestHostClientCookieHeaderSplit(t *testing.T) {
 // a stream error, but others like cancel should be similar)
 func TestHostClientBodyReadErrorType(t *testing.T) {
 	doPanic := make(chan bool, 1)
-	st := newServerTester(t,
+	st := newStandardServerTester(t,
 		func(w http.ResponseWriter, r *http.Request) {
 			w.(http.Flusher).Flush() // force headers out
 			<-doPanic
@@ -1871,8 +1875,8 @@ func TestHostClientDoubleCloseOnWriteError(t *testing.T) {
 		conn network.Conn // to close if set
 	)
 
-	st := newServerTester(t,
-		func(w http.ResponseWriter, r *http.Request) {
+	st := newHertzServerTester(t,
+		func(c context.Context, ctx *app.RequestContext) {
 			mu.Lock()
 			defer mu.Unlock()
 			if conn != nil {
@@ -1883,7 +1887,7 @@ func TestHostClientDoubleCloseOnWriteError(t *testing.T) {
 	)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1911,7 +1915,7 @@ func TestHostClientDoubleCloseOnWriteError(t *testing.T) {
 	defer tr.CloseIdleConnections()
 
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-	req.SetRequestURI(st.ts.URL)
+	req.SetRequestURI(u.String())
 	tr.Do(context.Background(), req, rsp)
 }
 
@@ -1919,15 +1923,15 @@ func TestHostClientDoubleCloseOnWriteError(t *testing.T) {
 // and connections are closed as soon as idle.
 // See golang.org/issue/14008
 func TestTransportDisableKeepAlives(t *testing.T) {
-	st := newServerTester(t,
-		func(w http.ResponseWriter, r *http.Request) {
-			io.WriteString(w, "hi")
+	st := newHertzServerTester(t,
+		func(c context.Context, ctx *app.RequestContext) {
+			ctx.WriteString("hi")
 		},
 		optOnlyServer,
 	)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1947,7 +1951,7 @@ func TestTransportDisableKeepAlives(t *testing.T) {
 		},
 		Addr: u.Host,
 	}
-	_, _, err = tr.Get(context.Background(), nil, st.ts.URL)
+	_, _, err = tr.Get(context.Background(), nil, u.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1963,16 +1967,16 @@ func TestTransportDisableKeepAlives(t *testing.T) {
 // but when things are totally idle, it still needs to close.
 func TestTransportDisableKeepAlives_Concurrency(t *testing.T) {
 	const D = 25 * time.Millisecond
-	st := newServerTester(t,
-		func(w http.ResponseWriter, r *http.Request) {
+	st := newHertzServerTester(t,
+		func(c context.Context, ctx *app.RequestContext) {
 			time.Sleep(D)
-			io.WriteString(w, "hi")
+			ctx.WriteString("hi")
 		},
 		optOnlyServer,
 	)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2010,7 +2014,7 @@ func TestTransportDisableKeepAlives_Concurrency(t *testing.T) {
 		}
 		go func() {
 			defer reqs.Done()
-			_, _, err := tr.Get(context.Background(), nil, st.ts.URL)
+			_, _, err := tr.Get(context.Background(), nil, u.String())
 			if err != nil {
 				t.Error(err)
 				return
@@ -2094,17 +2098,17 @@ func (c *noteCloseConn) Close() error {
 
 // RFC 7540 section 8.1.2.2
 func TestHostClientRejectsConnHeaders(t *testing.T) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
 		var got []string
-		for k := range r.Header {
-			got = append(got, k)
-		}
+		ctx.Request.Header.VisitAll(func(key, _ []byte) {
+			got = append(got, string(key))
+		})
 		sort.Strings(got)
-		w.Header().Set("Got-Header", strings.Join(got, ","))
+		ctx.Response.Header.Set("Got-Header", strings.Join(got, ","))
 	}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2166,7 +2170,7 @@ func TestHostClientRejectsConnHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-		req.SetRequestURI(st.ts.URL)
+		req.SetRequestURI(u.String())
 		for _, v := range tt.value {
 			req.Header.Add(tt.key, v)
 		}
@@ -2221,11 +2225,11 @@ func TestHostClientRejectsContentLengthWithSign(t *testing.T) {
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Length", tt.cl[0])
+			st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+				ctx.Response.Header.Set("Content-Length", tt.cl[0])
 			}, optOnlyServer)
 			defer st.Close()
-			u, err := url.Parse(st.ts.URL)
+			u, err := url.Parse("https://" + st.url)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -2234,7 +2238,7 @@ func TestHostClientRejectsContentLengthWithSign(t *testing.T) {
 			defer tr.CloseIdleConnections()
 
 			req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-			req.SetRequestURI(st.ts.URL)
+			req.SetRequestURI(u.String())
 			req.SetMethod(consts.MethodHead)
 
 			err = tr.Do(context.Background(), req, rsp)
@@ -2255,13 +2259,13 @@ func TestHostClientRejectsContentLengthWithSign(t *testing.T) {
 
 // golang.org/issue/14048
 func TestHostClientFailsOnInvalidHeaders(t *testing.T) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
 		var got []string
-		for k := range r.Header {
-			got = append(got, k)
-		}
+		ctx.Request.Header.VisitAll(func(key, _ []byte) {
+			got = append(got, string(key))
+		})
 		sort.Strings(got)
-		w.Header().Set("Got-Header", strings.Join(got, ","))
+		ctx.Response.Header.Set("Got-Header", strings.Join(got, ","))
 	}, optOnlyServer)
 	defer st.Close()
 
@@ -2287,7 +2291,7 @@ func TestHostClientFailsOnInvalidHeaders(t *testing.T) {
 		},
 	}
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2297,7 +2301,7 @@ func TestHostClientFailsOnInvalidHeaders(t *testing.T) {
 
 	for i, tt := range tests {
 		req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-		req.SetRequestURI(st.ts.URL)
+		req.SetRequestURI(u.String())
 		for k, vv := range tt.h {
 			for _, v := range vv {
 				req.Header.Add(k, v)
@@ -2527,13 +2531,13 @@ func (b neverEnding) Read(p []byte) (int, error) {
 // runs out of flow control tokens)
 func TestHostClientHandlerBodyClose(t *testing.T) {
 	const bodySize = 10 << 20
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-		r.Body.Close()
-		io.Copy(w, io.LimitReader(neverEnding('A'), bodySize))
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+		ctx.Request.BodyStream().(io.Closer).Close()
+		ctx.Response.SetBodyStream(struct{ io.Reader }{io.LimitReader(neverEnding('A'), bodySize)}, -1)
 	}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2547,7 +2551,7 @@ func TestHostClientHandlerBodyClose(t *testing.T) {
 	for i := 0; i < numReq; i++ {
 		req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
 		req.SetMethod(consts.MethodPost)
-		req.SetRequestURI(st.ts.URL)
+		req.SetRequestURI(u.String())
 		req.SetBodyStream(struct{ io.Reader }{io.LimitReader(neverEnding('A'), bodySize)}, -1)
 		err = tr.Do(context.Background(), req, rsp)
 		if err != nil {
@@ -2577,7 +2581,7 @@ func TestHostClientFlowControl(t *testing.T) {
 	}
 
 	var wrote int64 // updated atomically
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
+	st := newStandardServerTester(t, func(w http.ResponseWriter, r *http.Request) {
 		b := make([]byte, bufLen)
 		for wrote < total {
 			n, err := w.Write(b)
@@ -3055,11 +3059,11 @@ func (b byteAndEOFReader) Read(p []byte) (n int, err error) {
 // which returns (non-0, io.EOF) and also needs to set the ContentLength
 // explicitly.
 func TestHostClientBodyDoubleEndStream(t *testing.T) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
 		// Nothing.
 	}, optOnlyServer)
 	defer st.Close()
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3069,7 +3073,7 @@ func TestHostClientBodyDoubleEndStream(t *testing.T) {
 
 	for i := 0; i < 2; i++ {
 		req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-		req.SetRequestURI(st.ts.URL)
+		req.SetRequestURI(u.String())
 		req.SetMethod(consts.MethodPost)
 		req.SetBodyStream(byteAndEOFReader('a'), 1)
 		err = tr.Do(context.Background(), req, rsp)
@@ -3159,10 +3163,10 @@ func TestRoundTripDoesntConsumeRequestBodyEarly(t *testing.T) {
 }
 
 func TestClientConnPing(t *testing.T) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {}, optOnlyServer)
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3188,7 +3192,7 @@ func TestHostClientCancelDataResponseRace(t *testing.T) {
 	clientGotError := make(chan bool, 1)
 
 	const msg = "Hello."
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
+	st := newStandardServerTester(t, func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/hello") {
 			time.Sleep(50 * time.Millisecond)
 			io.WriteString(w, msg)
@@ -3243,14 +3247,14 @@ func TestHostClientCancelDataResponseRace(t *testing.T) {
 
 // Issue 21316: It should be safe to reuse an http.Request after the
 // request has completed.
+
 func TestHostClientNoRaceOnRequestObjectAfterRequestComplete(t *testing.T) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-		io.WriteString(w, "body")
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+		ctx.WriteString("body")
 	}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3259,7 +3263,7 @@ func TestHostClientNoRaceOnRequestObjectAfterRequestComplete(t *testing.T) {
 	defer tr.CloseIdleConnections()
 
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-	req.SetRequestURI(st.ts.URL)
+	req.SetRequestURI(u.String())
 	err = tr.Do(context.Background(), req, rsp)
 	if err != nil {
 		t.Fatal(err)
@@ -3297,13 +3301,13 @@ func TestHostClientCloseAfterLostPing(t *testing.T) {
 }
 
 func TestHostClientPingWriteBlocks(t *testing.T) {
-	st := newServerTester(t,
-		func(w http.ResponseWriter, r *http.Request) {},
+	st := newHertzServerTester(t,
+		func(c context.Context, ctx *app.RequestContext) {},
 		optOnlyServer,
 	)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3331,7 +3335,7 @@ func TestHostClientPingWriteBlocks(t *testing.T) {
 	defer tr.CloseIdleConnections()
 
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-	req.SetRequestURI(st.ts.URL)
+	req.SetRequestURI(u.String())
 	err = tr.Do(context.Background(), req, rsp)
 	if err == nil {
 		t.Fatalf("Get = nil, want error")
@@ -3773,10 +3777,8 @@ func TestHostClientResponseDataBeforeHeaders(t *testing.T) {
 }
 
 func TestHostClientRequestsLowServerLimit(t *testing.T) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-	}, optOnlyServer, func(s *http2.Server) {
-		s.MaxConcurrentStreams = 1
-	})
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+	}, optOnlyServer)
 	defer st.Close()
 
 	var (
@@ -3784,7 +3786,7 @@ func TestHostClientRequestsLowServerLimit(t *testing.T) {
 		connCount   int
 	)
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3812,7 +3814,7 @@ func TestHostClientRequestsLowServerLimit(t *testing.T) {
 	const reqCount = 3
 	for i := 0; i < reqCount; i++ {
 		req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-		req.SetRequestURI(st.ts.URL)
+		req.SetRequestURI(u.String())
 		err = tr.Do(context.Background(), req, rsp)
 		if err != nil {
 			t.Fatal(err)
@@ -4018,7 +4020,7 @@ func TestHostClientAllocationsAfterResponseBodyClose(t *testing.T) {
 
 	writeErr := make(chan error, 1)
 
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
+	st := newStandardServerTester(t, func(w http.ResponseWriter, r *http.Request) {
 		w.(http.Flusher).Flush()
 		var sum int64
 		for i := 0; i < 100; i++ {
@@ -4043,7 +4045,7 @@ func TestHostClientAllocationsAfterResponseBodyClose(t *testing.T) {
 	defer tr.CloseIdleConnections()
 
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-	req.SetRequestURI(st.ts.URL)
+	req.SetRequestURI(u.String())
 	err = tr.Do(context.Background(), req, rsp)
 	if err != nil {
 		t.Fatal(err)
@@ -4123,12 +4125,11 @@ func (r infiniteReader) Read(b []byte) (int, error) {
 // Issue 20521: it is not an error to receive a response and end stream
 // from the server without the body being consumed.
 func TestHostClientResponseAndResetWithoutConsumingBodyRace(t *testing.T) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
 	}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4139,7 +4140,7 @@ func TestHostClientResponseAndResetWithoutConsumingBodyRace(t *testing.T) {
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
 	req.SetMethod(consts.MethodPut)
 	req.SetBodyStream(infiniteReader{}, -1)
-	req.SetRequestURI(st.ts.URL)
+	req.SetRequestURI(u.String())
 	err = tr.Do(context.Background(), req, rsp)
 	if err != nil {
 		t.Fatal(err)
@@ -4222,7 +4223,7 @@ func testClientConnClose(t *testing.T, closeMode closeMode) {
 	closeDone := make(chan struct{})
 	beforeHeader := func() {}
 	bodyWrite := func(w http.ResponseWriter) {}
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
+	st := newStandardServerTester(t, func(w http.ResponseWriter, r *http.Request) {
 		defer close(handlerDone)
 		beforeHeader()
 		w.WriteHeader(http.StatusOK)
@@ -4605,12 +4606,12 @@ func TestHostClientBodyLargerThanSpecifiedContentLength_len2(t *testing.T) {
 }
 
 func testHostClientBodyLargerThanSpecifiedContentLength(t *testing.T, body *chunkReader, contentLen int64) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-		r.Body.Read(make([]byte, 6))
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+		ctx.Request.BodyStream().Read(make([]byte, 6))
 	}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4620,7 +4621,7 @@ func testHostClientBodyLargerThanSpecifiedContentLength(t *testing.T, body *chun
 
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
 	req.SetMethod(consts.MethodPost)
-	req.SetRequestURI(st.ts.URL)
+	req.SetRequestURI(u.String())
 	req.SetBodyStream(body, int(contentLen))
 	err = tr.Do(context.Background(), req, rsp)
 	if err != errReqBodyTooLong {
@@ -4707,10 +4708,10 @@ func TestHostClientRoundtripCloseOnWriteError(t *testing.T) {
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
 	req.SetRequestURI("https://dummy.tld/")
 
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {}, optOnlyServer)
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4749,12 +4750,12 @@ func (r errorReader) Read(p []byte) (int, error) { return 0, r.err }
 // Issue 42498: A request with a body will never be sent if the stream is
 // reset prior to sending any data.
 func TestHostClientServerResetStreamAtHeaders(t *testing.T) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+		ctx.Status(http.StatusUnauthorized)
 	}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4771,7 +4772,7 @@ func TestHostClientServerResetStreamAtHeaders(t *testing.T) {
 
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
 	req.SetMethod(consts.MethodPost)
-	req.SetRequestURI(st.ts.URL)
+	req.SetRequestURI(u.String())
 	req.SetBodyStream(errorReader{io.EOF}, 0)
 	req.Header.Set("Expect", "100-continue")
 	err = tr.Do(context.Background(), req, rsp)
@@ -4824,6 +4825,7 @@ func (rc *closeChecker) isClosed() error {
 }
 
 // A blockingWriteConn is a net.Conn that blocks in Write after some number of bytes are written.
+
 type blockingWriteConn struct {
 	network.Conn
 	writeOnce    sync.Once
@@ -4842,11 +4844,13 @@ func newBlockingWriteConn(conn network.Conn, limit int) *blockingWriteConn {
 }
 
 // wait waits until the conn blocks writing the limit+1st byte.
+
 func (c *blockingWriteConn) wait() {
 	<-c.writec
 }
 
 // unblock unblocks writes to the conn.
+
 func (c *blockingWriteConn) unblock() {
 	close(c.unblockc)
 }
@@ -4868,11 +4872,11 @@ func (c *blockingWriteConn) Write(b []byte) (n int, err error) {
 func TestHostClientFrameBufferReuse(t *testing.T) {
 	filler := hex.EncodeToString([]byte(randString(2048)))
 
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.Header.Get("Big"), filler; got != want {
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+		if got, want := ctx.Request.Header.Get("Big"), filler; got != want {
 			t.Errorf(`r.Header.Get("Big") = %q, want %q`, got, want)
 		}
-		b, err := ioutil.ReadAll(r.Body)
+		b, err := ctx.Body()
 		if err != nil {
 			t.Errorf("error reading request body: %v", err)
 		}
@@ -4882,7 +4886,7 @@ func TestHostClientFrameBufferReuse(t *testing.T) {
 	}, optOnlyServer)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4898,7 +4902,7 @@ func TestHostClientFrameBufferReuse(t *testing.T) {
 			defer wg.Done()
 
 			req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-			req.SetRequestURI(st.ts.URL)
+			req.SetRequestURI(u.String())
 			req.SetMethod(consts.MethodPost)
 			req.SetBodyStream(strings.NewReader(filler), len(filler))
 			req.Header.Set("Big", filler)
@@ -4953,26 +4957,24 @@ func TestHostClientBlockingRequestWrite(t *testing.T) {
 	}} {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-				if v := r.Header.Get("Big"); v != "" && v != filler {
+			st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+				if v := ctx.Request.Header.Get("Big"); v != "" && v != filler {
 					t.Errorf("request header mismatch")
 				}
-				if v, _ := ioutil.ReadAll(r.Body); len(v) != 0 && string(v) != "body" && string(v) != filler {
+				if v, _ := ctx.Body(); len(v) != 0 && string(v) != "body" && string(v) != filler {
 					t.Errorf("request body mismatch\ngot:  %q\nwant: %q", string(v), filler)
 				}
-				if v := r.Trailer.Get("Big"); v != "" && v != filler {
+				if v := ctx.Request.Header.Trailer().Get("Big"); v != "" && v != filler {
 					t.Errorf("request trailer mismatch\ngot:  %q\nwant: %q", string(v), filler)
 				}
-			}, optOnlyServer, func(s *http2.Server) {
-				s.MaxConcurrentStreams = 1
-			})
+			}, optOnlyServer, config.WithMaxConcurrentStreams(1))
 			defer st.Close()
 
 			// This Transport creates connections that block on writes after 1024 bytes.
 			connc := make(chan *blockingWriteConn, 1)
 			connCount := 0
 
-			u, err := url.Parse(st.ts.URL)
+			u, err := url.Parse("https://" + st.url)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -5001,7 +5003,7 @@ func TestHostClientBlockingRequestWrite(t *testing.T) {
 			// Request 1: A small request to ensure we read the server MaxConcurrentStreams.
 			{
 				req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-				req.SetRequestURI(st.ts.URL)
+				req.SetRequestURI(u.String())
 				req.SetMethod(consts.MethodPost)
 				err = tr.Do(context.Background(), req, rsp)
 				if err != nil {
@@ -5017,7 +5019,7 @@ func TestHostClientBlockingRequestWrite(t *testing.T) {
 			reqc := make(chan struct{})
 			go func() {
 				defer close(reqc)
-				req, err := test.req(st.ts.URL)
+				req, err := test.req(u.String())
 				if err != nil {
 					t.Error(err)
 					return
@@ -5033,7 +5035,7 @@ func TestHostClientBlockingRequestWrite(t *testing.T) {
 			{
 
 				req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-				req.SetRequestURI(st.ts.URL)
+				req.SetRequestURI(u.String())
 				req.SetMethod(consts.MethodPost)
 				err = tr.Do(context.Background(), req, rsp)
 				if err != nil {
@@ -5140,11 +5142,11 @@ func TestHostClientTimeoutServerHangs(t *testing.T) {
 
 func TestHostClientContentLengthWithoutBody(t *testing.T) {
 	contentLength := ""
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", contentLength)
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+		ctx.Response.Header.Set("Content-Length", contentLength)
 	}, optOnlyServer)
 	defer st.Close()
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5176,7 +5178,7 @@ func TestHostClientContentLengthWithoutBody(t *testing.T) {
 			contentLength = test.contentLength
 
 			req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-			req.SetRequestURI(st.ts.URL)
+			req.SetRequestURI(u.String())
 			err = tr.Do(context.Background(), req, rsp)
 			if err != nil {
 				t.Fatal(err)
@@ -5197,7 +5199,7 @@ func TestHostClientContentLengthWithoutBody(t *testing.T) {
 }
 
 func TestHostClientCloseResponseBodyWhileRequestBodyHangs(t *testing.T) {
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
+	st := newStandardServerTester(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		w.(http.Flusher).Flush()
 		io.Copy(ioutil.Discard, r.Body)
@@ -5227,7 +5229,7 @@ func TestHostClientCloseResponseBodyWhileRequestBodyHangs(t *testing.T) {
 func TestHostClient300ResponseBody(t *testing.T) {
 	reqc := make(chan struct{})
 	body := []byte("response body")
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
+	st := newStandardServerTester(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(300)
 		w.(http.Flusher).Flush()
 		<-reqc
@@ -5263,13 +5265,13 @@ func TestHostClient300ResponseBody(t *testing.T) {
 }
 
 func TestHostClientWriteByteTimeout(t *testing.T) {
-	st := newServerTester(t,
-		func(w http.ResponseWriter, r *http.Request) {},
+	st := newHertzServerTester(t,
+		func(c context.Context, ctx *app.RequestContext) {},
 		optOnlyServer,
 	)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5288,7 +5290,7 @@ func TestHostClientWriteByteTimeout(t *testing.T) {
 	defer tr.CloseIdleConnections()
 
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-	req.SetRequestURI(st.ts.URL)
+	req.SetRequestURI(u.String())
 	err = tr.Do(context.Background(), req, rsp)
 	if !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatalf("Get on unresponsive connection: got %q; want ErrDeadlineExceeded", err)
@@ -5317,13 +5319,13 @@ func (c *slowWriteConn) Write(b []byte) (n int, err error) {
 }
 
 func TestHostClientSlowWrites(t *testing.T) {
-	st := newServerTester(t,
-		func(w http.ResponseWriter, r *http.Request) {},
+	st := newHertzServerTester(t,
+		func(c context.Context, ctx *app.RequestContext) {},
 		optOnlyServer,
 	)
 	defer st.Close()
 
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5349,7 +5351,7 @@ func TestHostClientSlowWrites(t *testing.T) {
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
 	req.SetBodyStream(io.LimitReader(neverEnding('A'), bodySize), -1)
 	req.Header.SetContentTypeBytes([]byte("test/foo"))
-	req.SetRequestURI(st.ts.URL)
+	req.SetRequestURI(u.String())
 	req.SetMethod(consts.MethodPost)
 	err = tr.Do(context.Background(), req, rsp)
 	if err != nil {
@@ -5363,17 +5365,13 @@ func TestHostClientWithTrailerHeader(t *testing.T) {
 		"Hertz": "test",
 		"foo":   "bar",
 	}
-	st := newServerTester(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Trailer", "Hertz, foo")
-		w.WriteHeader(http.StatusOK)
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
 		for k, v := range wantTrailerHeader {
-			w.Header().Set(k, v)
+			ctx.Response.Header.Trailer().Set(k, v)
 		}
-
-		w.Header().Set(http.TrailerPrefix+"NoDeclare", "1")
 	}, optOnlyServer)
 	defer st.Close()
-	u, err := url.Parse(st.ts.URL)
+	u, err := url.Parse("https://" + st.url)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5382,7 +5380,7 @@ func TestHostClientWithTrailerHeader(t *testing.T) {
 	defer tr.CloseIdleConnections()
 
 	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
-	req.SetRequestURI(st.ts.URL)
+	req.SetRequestURI(u.String())
 	req.SetMethod(consts.MethodGet)
 	err = tr.Do(context.Background(), req, rsp)
 	if err != nil {
