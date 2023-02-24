@@ -998,7 +998,8 @@ func (sc *serverConn) wroteFrame(res frameWriteResult) {
 		case StreamError:
 			// st may be unknown if the RST_STREAM was generated to reject bad input.
 			if st, ok := sc.streams[v.StreamID]; ok {
-				sc.closeStream(st, v, false)
+				// if v.Code is ErrCodeNo, then we can release ctx safely
+				sc.closeStream(st, v, v.Code != ErrCodeNo)
 			}
 		case handlerPanicRST:
 			sc.closeStream(wr.stream, errHandlerPanicked, false)
