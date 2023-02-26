@@ -28,3 +28,5 @@ require (
 	golang.org/x/text v0.7.0 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
 )
+
+replace github.com/cloudwego/hertz => github.com/wzekin/hertz v0.0.0-20230214091503-11f20698d9db
