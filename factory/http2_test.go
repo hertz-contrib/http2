@@ -145,7 +145,9 @@ func getStream(data []byte) io.Reader {
 
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		writer.Write(data)
+		if len(data) != 0 {
+			writer.Write(data)
+		}
 		writer.Close()
 	}()
 
@@ -156,8 +158,10 @@ func getBadStream(data []byte) io.Reader {
 	reader, writer := io.Pipe()
 
 	go func() {
-		writer.Write(data)
 		time.Sleep(100 * time.Millisecond)
+		if len(data) != 0 {
+			writer.Write(data)
+		}
 		writer.CloseWithError(errors.New("test error"))
 	}()
 

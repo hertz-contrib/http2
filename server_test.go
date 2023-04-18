@@ -202,6 +202,7 @@ func newHertzServerTester(t testing.TB, handler app.HandlerFunc, opts ...interfa
 	}
 	st.hpackEnc = hpack.NewEncoder(&st.headerBuf)
 	st.hpackDec = hpack.NewDecoder(initialHeaderTableSize, st.onHeaderField)
+	st.addLogFilter("Transport readFrame error")
 
 	testHookGetServerConn = func(v *serverConn) {
 		st.scMu.Lock()
@@ -228,6 +229,7 @@ func newHertzServerTester(t testing.TB, handler app.HandlerFunc, opts ...interfa
 			st.fr.logWrites = true
 		}
 	}
+
 	return st
 }
 
