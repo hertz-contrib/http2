@@ -3678,3 +3678,92 @@ func TestProtocolErrorAfterGoAway(t *testing.T) {
 		}
 	}
 }
+
+func TestServer_HijackWriter(t *testing.T) {
+	testServerResponse(t, func(c context.Context, ctx *app.RequestContext) error {
+		ctx.Response.HijackWriter(NewResponserWriter(ctx.GetConn()))
+		ctx.Write([]byte("Hello"))
+		ctx.Flush()
+		ctx.Write([]byte("World"))
+		ctx.Flush()
+		return nil
+	}, func(st *hertzServerTester) {
+		getSlash(st)
+		hf := st.wantHeaders()
+		if !hf.HeadersEnded() {
+			t.Fatal("want END_HEADERS flag")
+		}
+
+		df := st.wantData()
+		if !df.valid {
+			t.Fatal("data Frame is invalid")
+		}
+
+		if string(df.data) != "Hello" {
+			t.Fatalf("Got %v; want %v", string(df.data), "Hello")
+		}
+
+		df = st.wantData()
+		if !df.valid {
+			t.Fatal("data Frame is invalid")
+		}
+
+		if string(df.data) != "World" {
+			t.Fatalf("Got %v; want %v", string(df.data), "World")
+		}
+
+		df = st.wantData()
+		if !df.StreamEnded() {
+			t.Fatal("want STREAM_ENDED flag")
+		}
+	})
+}
+
+func TestServer_HijackWriter_Flush(t *testing.T) {
+	ch := make(chan struct{})
+	testServerResponse(t, func(c context.Context, ctx *app.RequestContext) error {
+		ctx.Response.HijackWriter(NewResponserWriter(ctx.GetConn()))
+		ctx.Write([]byte("Hello"))
+		ctx.Flush()
+
+		ch <- struct{}{}
+
+		ctx.Write([]byte("World"))
+		ctx.Flush()
+
+		ch <- struct{}{}
+		return nil
+	}, func(st *hertzServerTester) {
+		getSlash(st)
+		hf := st.wantHeaders()
+		if !hf.HeadersEnded() {
+			t.Fatal("want END_HEADERS flag")
+		}
+
+		<-ch
+		df := st.wantData()
+		if !df.valid {
+			t.Fatal("data Frame is invalid")
+		}
+
+		if string(df.data) != "Hello" {
+			t.Fatalf("Got %v; want %v", string(df.data), "Hello")
+		}
+
+		<-ch
+		df = st.wantData()
+		if !df.valid {
+			t.Fatal("data Frame is invalid")
+		}
+
+		if string(df.data) != "World" {
+			t.Fatalf("Got %v; want %v", string(df.data), "World")
+		}
+
+		df = st.wantData()
+		if !df.StreamEnded() {
+			t.Fatal("want STREAM_ENDED flag")
+		}
+
+	})
+}

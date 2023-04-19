@@ -36,12 +36,12 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/cloudwego/hertz/pkg/network"
 	"golang.org/x/net/http/httpguts"
 )
 
@@ -339,18 +339,7 @@ func validPseudoPath(v string) bool {
 	return (len(v) > 0 && v[0] == '/') || v == "*"
 }
 
-type CloseWithoutResetBuffer interface {
-	CloseNoResetBuffer() error
-}
-
-type h2Conn struct {
-	net.Conn
-}
-
-func (c *h2Conn) Close() error {
-	if cwrb, ok := c.Conn.(CloseWithoutResetBuffer); ok {
-		return cwrb.CloseNoResetBuffer()
-	} else {
-		return c.Conn.Close()
-	}
+type h2ServerConn struct {
+	network.Conn
+	rw *responseWriter
 }
