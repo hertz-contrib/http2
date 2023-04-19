@@ -445,7 +445,7 @@ func (w *extWriter) Finalize() error {
 	return nil
 }
 
-func NewResponserWriter(conn network.Conn) network.ExtWriter {
+func NewResponseWriter(conn network.Conn) network.ExtWriter {
 	c, ok := conn.(*h2ServerConn)
 	if !ok {
 		panic("the conn is not the H2 Conn!")
