@@ -464,20 +464,12 @@ func (c *testNetConn) Close() error {
 		if c.onClose != nil {
 			c.onClose()
 		} else {
-			if cwrb, ok := c.Conn.(CloseWithoutResetBuffer); ok {
-				return cwrb.CloseNoResetBuffer()
-			} else {
-				return c.Conn.Close()
-			}
+			return c.Conn.Close()
 		}
 	}
 	c.closed = true
 
-	if cwrb, ok := c.Conn.(CloseWithoutResetBuffer); ok {
-		return cwrb.CloseNoResetBuffer()
-	} else {
-		return c.Conn.Close()
-	}
+	return c.Conn.Close()
 }
 
 // Tests that the Transport only keeps one pending dial open per destination address.
@@ -826,8 +818,8 @@ func (fw flushWriter) Write(p []byte) (n int, err error) {
 type clientTester struct {
 	t      *testing.T
 	tr     *HostClient
-	cc, sc net.Conn // server and client conn
-	fr     *Framer  // server's framer
+	cc, sc network.Conn // server and client conn
+	fr     *Framer      // server's framer
 	client func() error
 	server func() error
 }
@@ -868,7 +860,7 @@ func newClientTester(t *testing.T) *clientTester {
 		t.Fatal(err)
 	}
 	ln.Close()
-	ct.cc = &h2Conn{cc}
+	ct.cc = cc
 	// ct.sc = standard.NewConn(sc, 4096)
 	ct.sc = newMockNetworkConn(sc)
 	ct.fr = NewFramer(ct.sc, ct.sc)
@@ -2089,11 +2081,7 @@ func (c *noteCloseConn) SetReadTimeout(t time.Duration) error {
 
 func (c *noteCloseConn) Close() error {
 	c.onceClose.Do(c.closefn)
-	if cwrb, ok := c.Conn.(CloseWithoutResetBuffer); ok {
-		return cwrb.CloseNoResetBuffer()
-	} else {
-		return c.Conn.Close()
-	}
+	return c.Conn.Close()
 }
 
 // RFC 7540 section 8.1.2.2
@@ -3498,7 +3486,7 @@ func TestHostClientRetryAfterGOAWAY(t *testing.T) {
 		ct := &clientTester{
 			t:  t,
 			tr: tr,
-			cc: &h2Conn{cc},
+			cc: cc,
 			sc: newMockNetworkConn(sc),
 		}
 		ct.fr = NewFramer(sc, ct.sc)

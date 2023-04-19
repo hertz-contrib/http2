@@ -201,8 +201,7 @@ func (s *Server) Serve(ctx context.Context, c network.Conn) error {
 	sc := &serverConn{
 		srv:                         s,
 		engine:                      &s.BaseEngine,
-		conn:                        &h2Conn{c},
-		rawConn:                     c,
+		conn:                        c,
 		baseCtx:                     ctx,
 		remoteAddrStr:               c.RemoteAddr().String(),
 		bw:                          newBufferedWriter(c),
@@ -319,8 +318,7 @@ func (sc *serverConn) rejectConn(err ErrCode, debug string) {
 type serverConn struct {
 	// Immutable:
 	srv              *Server
-	conn             net.Conn
-	rawConn          network.Conn
+	conn             network.Conn
 	bw               *bufferedWriter // writing to conn
 	baseCtx          context.Context
 	framer           *Framer
@@ -1631,6 +1629,7 @@ func (sc *serverConn) processHeaders(f *MetaHeadersFrame) error {
 
 	rw, err := sc.newWriterAndRequest(st, f)
 	st.rw = rw
+	st.reqCtx.SetConn(&h2ServerConn{sc.conn, rw})
 	if err != nil {
 		return err
 	}
@@ -1689,10 +1688,6 @@ func (sc *serverConn) newStream(id, pusherID uint32, state streamState) *stream 
 	}
 
 	reqCtx := sc.engine.AcquireReqCtx()
-	if connection, ok := sc.conn.(network.Conn); ok {
-		reqCtx.SetConn(connection)
-	}
-	reqCtx.SetConn(sc.rawConn)
 	reqCtx.Request.Header.SetProtocol(consts.HTTP20)
 	reqCtx.Request.Header.InitContentLengthWithValue(-1)
 
@@ -1881,6 +1876,11 @@ func (sc *serverConn) runHandler(rw *responseWriter, reqCtx *app.RequestContext,
 			}
 			return
 		} else {
+			if writer := reqCtx.Response.GetHijackWriter(); writer != nil {
+				writer.Finalize()
+				return
+			}
+
 			rw.WriteHeader(reqCtx.Response.StatusCode())
 			err := writeResponseBody(rw, reqCtx)
 			if err != nil {
