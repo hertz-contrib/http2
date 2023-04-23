@@ -1836,14 +1836,14 @@ func (sc *serverConn) newWriterAndRequestNoBody(st *stream) (*responseWriter, er
 
 func writeResponseBody(rw *responseWriter, reqCtx *app.RequestContext) (err error) {
 	if reqCtx.Response.IsBodyStream() {
+		var n int
 		vbuf := utils.CopyBufPool.Get()
 		buf := vbuf.([]byte)
 		for {
-			var n int
 			n, err = reqCtx.Response.BodyStream().Read(buf)
 			if n == 0 {
 				if err == nil {
-					return errors.New("BUG: io.Reader returned 0, nil")
+					return errors.New("response bodyStream().Read(buf) returns 0, nil")
 				}
 				if err == io.EOF {
 					err = nil
