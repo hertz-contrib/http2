@@ -3680,7 +3680,8 @@ func TestProtocolErrorAfterGoAway(t *testing.T) {
 
 func TestServer_HijackWriter(t *testing.T) {
 	testServerResponse(t, func(c context.Context, ctx *app.RequestContext) error {
-		ctx.Response.HijackWriter(NewResponseWriter(ctx.GetConn()))
+		writer, _ := NewResponseWriter(ctx.GetConn())
+		ctx.Response.HijackWriter(writer)
 		ctx.Write([]byte("Hello"))
 		ctx.Flush()
 		ctx.Write([]byte("World"))
@@ -3721,7 +3722,8 @@ func TestServer_HijackWriter(t *testing.T) {
 func TestServer_HijackWriter_Flush(t *testing.T) {
 	ch := make(chan struct{})
 	testServerResponse(t, func(c context.Context, ctx *app.RequestContext) error {
-		ctx.Response.HijackWriter(NewResponseWriter(ctx.GetConn()))
+		writer, _ := NewResponseWriter(ctx.GetConn())
+		ctx.Response.HijackWriter(writer)
 		ctx.Write([]byte("Hello"))
 		ctx.Flush()
 
