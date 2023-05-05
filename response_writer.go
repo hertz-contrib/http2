@@ -31,6 +31,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/cloudwego/hertz/pkg/network"
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/http2/internal/bytesconv"
@@ -424,4 +425,31 @@ func (w *responseWriter) Push(target string, opts *http.PushOptions) error {
 		errChanPool.Put(msg.done)
 		return err
 	}
+}
+
+type extWriter struct {
+	rw *responseWriter
+}
+
+func (w *extWriter) Write(p []byte) (n int, err error) {
+	return w.rw.Write(p)
+}
+
+func (w *extWriter) Flush() error {
+	w.rw.Flush()
+	return nil
+}
+
+func (w *extWriter) Finalize() error {
+	w.rw.handlerDone()
+	return nil
+}
+
+func NewResponseWriter(conn network.Conn) (network.ExtWriter, error) {
+	c, ok := conn.(*h2ServerConn)
+	if !ok {
+		return nil, errors.New("http2: the conn is not a http2 Conn")
+	}
+
+	return &extWriter{c.rw}, nil
 }

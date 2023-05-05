@@ -357,7 +357,7 @@ func (hc *HostClient) acquireConn() (*clientConn, error) {
 	return c, nil
 }
 
-func (hc *HostClient) dialHostHard() (conn net.Conn, err error) {
+func (hc *HostClient) dialHostHard() (conn network.Conn, err error) {
 	hc.addrsLock.Lock()
 	n := len(hc.addrs)
 	hc.addrsLock.Unlock()
@@ -384,8 +384,8 @@ func (hc *HostClient) dialHostHard() (conn net.Conn, err error) {
 	return nil, err
 }
 
-func dialAddr(addr string, dial network.Dialer, tlsConfig *tls.Config, timeout time.Duration, isTLS bool) (net.Conn, error) {
-	var conn net.Conn
+func dialAddr(addr string, dial network.Dialer, tlsConfig *tls.Config, timeout time.Duration, isTLS bool) (network.Conn, error) {
+	var conn network.Conn
 	var err error
 	if dial == nil {
 		hlog.Warnf("HERTZ: HostClient: no dialer specified, trying to use default dialer")
@@ -516,9 +516,9 @@ func (hc *HostClient) nextAddr() string {
 	return addr
 }
 
-func (hc *HostClient) newClientConn(c net.Conn, singleUse bool) (*clientConn, error) {
+func (hc *HostClient) newClientConn(c network.Conn, singleUse bool) (*clientConn, error) {
 	cc := &clientConn{}
-	cc.tconn = &h2Conn{c}
+	cc.tconn = c
 	cc.createdTime = time.Now()
 	cc.readerDone = make(chan struct{})
 	cc.nextStreamID = 1
@@ -589,7 +589,7 @@ func (hc *HostClient) newClientConn(c net.Conn, singleUse bool) (*clientConn, er
 // clientConn is the state of a single HTTP/2 client connection to an
 // HTTP/2 server.
 type clientConn struct {
-	tconn net.Conn // usually *tls.Conn, except specialized impls
+	tconn network.Conn
 	hc    *HostClient
 
 	// readLoop goroutine fields:
