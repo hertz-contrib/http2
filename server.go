@@ -1829,26 +1829,29 @@ func (sc *serverConn) newWriterAndRequestNoBody(st *stream) (*responseWriter, er
 	return rw, nil
 }
 
-func writeResponseBody(rw *responseWriter, reqCtx *app.RequestContext) error {
+func writeResponseBody(rw *responseWriter, reqCtx *app.RequestContext) (err error) {
 	if reqCtx.Response.IsBodyStream() {
+		var n int
 		vbuf := utils.CopyBufPool.Get()
 		buf := vbuf.([]byte)
 		for {
-			n, err := reqCtx.Response.BodyStream().Read(buf)
-			if err == io.EOF {
+			n, err = reqCtx.Response.BodyStream().Read(buf)
+			if n == 0 {
+				if err == nil {
+					return errors.New("response bodyStream().Read(buf) returns 0, nil")
+				}
+				if err == io.EOF {
+					err = nil
+				}
 				break
 			}
-			if err != nil {
-				return err
-			}
-			_, err = rw.Write(buf[:n])
-			if err != nil {
-				return err
+			if _, err = rw.Write(buf[:n]); err != nil {
+				break
 			}
 		}
 		utils.CopyBufPool.Put(vbuf)
 
-		return nil
+		return err
 	} else {
 		// reqCtx.Response.Body can be no error
 		// will split at FrameWriteRequest's Consume function
