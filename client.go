@@ -49,6 +49,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/network/dialer"
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/client"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/http2/config"
 	"github.com/hertz-contrib/http2/hpack"
 	"github.com/hertz-contrib/http2/internal/bytesconv"
@@ -253,6 +254,7 @@ func (cc *clientConn) RoundTrip(ctx context.Context, req *protocol.Request, rsp 
 
 	handleResponseHeaders := func() error {
 		res := cs.res
+		res.Header.SetProtocol(consts.HTTP20)
 		if res.StatusCode() > 299 {
 			// On error or status code 3xx, 4xx, 5xx, etc abort any
 			// ongoing write, assuming that the server doesn't care

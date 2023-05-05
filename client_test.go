@@ -250,6 +250,10 @@ func TestHostClientH2c(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if rsp.Header.GetProtocol() != consts.HTTP20 {
+		t.Fatalf("response protocol go %v, want %vj", rsp.Header.GetProtocol(), consts.HTTP20)
+	}
+
 	body, err := ioutil.ReadAll(rsp.BodyStream())
 	if err != nil {
 		t.Fatal(err)
@@ -287,6 +291,10 @@ func TestHostClient(t *testing.T) {
 
 		if g, w := res.StatusCode(), 200; g != w {
 			t.Errorf("%d: StatusCode = %v; want %v", i, g, w)
+		}
+
+		if res.Header.GetProtocol() != consts.HTTP20 {
+			t.Fatalf("response protocol go %v, want %vj", res.Header.GetProtocol(), consts.HTTP20)
 		}
 
 		wantHeader := http.Header{
