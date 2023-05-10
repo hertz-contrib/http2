@@ -209,7 +209,7 @@ type writeResHeaders struct {
 
 func encKV(enc *hpack.Encoder, k, v string) {
 	if VerboseLogs {
-		hlog.Infof("HERTZ: HTTP2 server encoding header %q = %q", k, v)
+		hlog.SystemLogger().Infof("HTTP2: server encoding header %q = %q", k, v)
 	}
 	enc.WriteField(hpack.HeaderField{Name: k, Value: v})
 }

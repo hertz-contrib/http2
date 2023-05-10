@@ -201,7 +201,7 @@ func (hc *HostClient) Do(ctx context.Context, req *protocol.Request, rsp *protoc
 		var cc *clientConn
 		cc, err = hc.acquireConn()
 		if err != nil {
-			hlog.Errorf("http2: transport failed to get client conn for %s: %v", hc.Addr, err)
+			hlog.SystemLogger().Errorf("HTTP2: transport failed to get client conn for %s: %v", hc.Addr, err)
 			return err
 		}
 		err = cc.RoundTrip(ctx, req, rsp)
@@ -390,7 +390,7 @@ func dialAddr(addr string, dial network.Dialer, tlsConfig *tls.Config, timeout t
 	var conn network.Conn
 	var err error
 	if dial == nil {
-		hlog.Warnf("HERTZ: HostClient: no dialer specified, trying to use default dialer")
+		hlog.SystemLogger().Warnf("HTTP2: no dialer specified, trying to use default dialer")
 		dial = dialer.DefaultDialer()
 	}
 	conn, err = dial.DialConnection("tcp", addr, timeout, tlsConfig)
@@ -540,7 +540,7 @@ func (hc *HostClient) newClientConn(c network.Conn, singleUse bool) (*clientConn
 	}
 
 	if VerboseLogs {
-		hlog.Infof("http2: host client creating client conn %p to %v", cc, c.RemoteAddr())
+		hlog.SystemLogger().Infof("HTTP2: host client creating client conn %p to %v", cc, c.RemoteAddr())
 	}
 
 	cc.cond = sync.NewCond(&cc.mu)
@@ -981,7 +981,7 @@ func (cc *clientConn) closeIfIdle() {
 	cc.mu.Unlock()
 
 	if VerboseLogs {
-		hlog.Infof("http2: Transport closing idle conn %p (forSingleUse=%v, maxStream=%v)", cc, cc.singleUse, nextID-2)
+		hlog.SystemLogger().Infof("HTTP2: Transport closing idle conn %p (forSingleUse=%v, maxStream=%v)", cc, cc.singleUse, nextID-2)
 	}
 
 	cc.tconn.Close()
@@ -1000,7 +1000,7 @@ func (cc *clientConn) Shutdown(ctx context.Context) error {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				hlog.Errorf("HERTZ: h2 client shutdown panic: %v", r)
+				hlog.SystemLogger().Errorf("HTTP2: h2 client shutdown panic: %v", r)
 			}
 		}()
 
@@ -1740,7 +1740,7 @@ func shouldSendReqContentLength(method string, contentLength int64) bool {
 
 func (cc *clientConn) writeHeader(name, value string) {
 	if VerboseLogs {
-		hlog.Infof("http2: Transport encoding header %q = %q", name, value)
+		hlog.SystemLogger().Infof("HTTP2: Transport encoding header %q = %q", name, value)
 	}
 
 	cc.henc.WriteField(hpack.HeaderField{Name: name, Value: value})
@@ -1779,7 +1779,7 @@ func (cc *clientConn) forgetStreamID(id uint32) {
 	closeOnIdle := cc.singleUse || cc.doNotReuse || cc.hc.DisableKeepAlive
 	if closeOnIdle && cc.streamsReserved == 0 && len(cc.streams) == 0 {
 		if VerboseLogs {
-			hlog.Infof("http2: Transport closing idle conn %p (forSingleUse=%v, maxStream=%v)", cc, cc.singleUse, cc.nextStreamID-2)
+			hlog.SystemLogger().Infof("HTTP2: Transport closing idle conn %p (forSingleUse=%v, maxStream=%v)", cc, cc.singleUse, cc.nextStreamID-2)
 		}
 
 		cc.closed = true
@@ -1882,9 +1882,9 @@ func (rl *clientConnReadLoop) run() error {
 
 		if err != nil {
 			if err != io.EOF {
-				hlog.Errorf("http2: Transport readFrame error on conn %p: (%T) %v", cc, err, err)
+				hlog.SystemLogger().Errorf("HTTP2: Transport readFrame error on conn %p: (%T) %v", cc, err, err)
 			} else {
-				hlog.Infof("http2: Transport readFrame error on conn %p: (%T) %v", cc, err, err)
+				hlog.SystemLogger().Infof("HTTP2: Transport readFrame error on conn %p: (%T) %v", cc, err, err)
 			}
 		}
 		if se, ok := err.(StreamError); ok {
@@ -1900,12 +1900,12 @@ func (rl *clientConnReadLoop) run() error {
 		}
 
 		if VerboseLogs {
-			hlog.Infof("http2: Transport received %s", summarizeFrame(f))
+			hlog.SystemLogger().Infof("HTTP2: Transport received %s", summarizeFrame(f))
 		}
 
 		if !gotSettings {
 			if _, ok := f.(*SettingsFrame); !ok {
-				hlog.Errorf("protocol error: received %T before a SETTINGS frame", f)
+				hlog.SystemLogger().Errorf("HTTP2: protocol error: received %T before a SETTINGS frame", f)
 				return ConnectionError(ErrCodeProtocol)
 			}
 			gotSettings = true
@@ -1929,10 +1929,10 @@ func (rl *clientConnReadLoop) run() error {
 		case *PingFrame:
 			err = rl.processPing(f)
 		default:
-			hlog.Errorf("Transport: unhandled response frame type %T", f)
+			hlog.SystemLogger().Errorf("HTTP2: unhandled response frame type %T", f)
 		}
 		if err != nil {
-			hlog.Errorf("http2: Transport conn %p received error from processing frame %v: %v", cc, summarizeFrame(f), err)
+			hlog.SystemLogger().Errorf("HTTP2: transport conn %p received error from processing frame %v: %v", cc, summarizeFrame(f), err)
 			return err
 		}
 	}
@@ -2214,7 +2214,7 @@ func (rl *clientConnReadLoop) processData(f *DataFrame) error {
 		cc.mu.Unlock()
 		if f.StreamID >= neverSent {
 			// We never asked for this.
-			hlog.Error("http2: Transport received unsolicited DATA frame; closing connection")
+			hlog.SystemLogger().Error("HTTP2: transport received unsolicited DATA frame; closing connection")
 			return ConnectionError(ErrCodeProtocol)
 		}
 		// We probably did ask for this, but canceled. Just ignore it.
@@ -2236,7 +2236,7 @@ func (rl *clientConnReadLoop) processData(f *DataFrame) error {
 		return nil
 	}
 	if cs.readClosed {
-		hlog.Error("protocol error: received DATA after END_STREAM")
+		hlog.SystemLogger().Error("HTTP2: protocol error: received DATA after END_STREAM")
 		rl.endStreamError(cs, StreamError{
 			StreamID: f.StreamID,
 			Code:     ErrCodeProtocol,
@@ -2244,7 +2244,7 @@ func (rl *clientConnReadLoop) processData(f *DataFrame) error {
 		return nil
 	}
 	if !cs.firstByte {
-		hlog.Error("protocol error: received DATA before a HEADERS frame")
+		hlog.SystemLogger().Error("HTTP2: protocol error: received DATA before a HEADERS frame")
 		rl.endStreamError(cs, StreamError{
 			StreamID: f.StreamID,
 			Code:     ErrCodeProtocol,
@@ -2253,7 +2253,7 @@ func (rl *clientConnReadLoop) processData(f *DataFrame) error {
 	}
 	if f.Length > 0 {
 		if cs.isHead && len(data) > 0 {
-			hlog.Error("protocol error: received DATA on a HEAD request")
+			hlog.SystemLogger().Error("HTTP2: protocol error: received DATA on a HEAD request")
 			rl.endStreamError(cs, StreamError{
 				StreamID: f.StreamID,
 				Code:     ErrCodeProtocol,
@@ -2346,7 +2346,7 @@ func (rl *clientConnReadLoop) processGoAway(f *GoAwayFrame) error {
 	cc.hc.onConnectionDropped(cc)
 	if f.ErrCode != 0 {
 		// TODO: deal with GOAWAY more. particularly the error code
-		hlog.Errorf("transport got GOAWAY with error code = %v", f.ErrCode)
+		hlog.SystemLogger().Errorf("HTTP2: transport got GOAWAY with error code = %v", f.ErrCode)
 	}
 	cc.setGoAway(f)
 
@@ -2414,7 +2414,7 @@ func (rl *clientConnReadLoop) processSettingsNoWrite(f *SettingsFrame) error {
 			cc.initialWindowSize = s.Val
 		default:
 			// TODO(bradfitz): handle more settings? SETTINGS_HEADER_TABLE_SIZE probably.
-			hlog.Errorf("Unhandled Setting: %v", s)
+			hlog.SystemLogger().Errorf("HTTP2: Unhandled Setting: %v", s)
 		}
 		return nil
 	})
@@ -2496,7 +2496,7 @@ func (cc *clientConn) Ping(ctx context.Context) error {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				hlog.Errorf("HERTZ: h2 client ping panic: %v", r)
+				hlog.SystemLogger().Errorf("HTTP2: h2 client ping panic: %v", r)
 			}
 		}()
 
