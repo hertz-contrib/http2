@@ -611,7 +611,7 @@ func (sc *serverConn) serve() {
 	}
 
 	if err := sc.readPreface(); err != nil {
-		sc.condlogf(err, "HTTP2 server: error reading preface from client %v: %v", sc.conn.RemoteAddr(), err)
+		sc.condlogf(err, "error reading preface from client %v: %v", sc.conn.RemoteAddr(), err)
 		return
 	}
 
@@ -757,7 +757,7 @@ func (sc *serverConn) readPreface() error {
 	case err := <-errc:
 		if err == nil {
 			if VerboseLogs {
-				hlog.SystemLogger().Infof("HTTP2 server: client %v said hello", sc.conn.RemoteAddr())
+				hlog.SystemLogger().Infof("client %v said hello", sc.conn.RemoteAddr())
 			}
 		}
 		return err
@@ -1146,7 +1146,7 @@ func (sc *serverConn) processFrameFromReader(res readFrameResult) bool {
 	} else {
 		f := res.f
 		if VerboseLogs {
-			hlog.SystemLogger().Infof("HTTP2 server: read frame %v", summarizeFrame(f))
+			hlog.SystemLogger().Infof("read frame %v", summarizeFrame(f))
 		}
 		err = sc.processFrame(f)
 		if err == nil {
@@ -1162,16 +1162,16 @@ func (sc *serverConn) processFrameFromReader(res readFrameResult) bool {
 		sc.goAway(ErrCodeFlowControl)
 		return true
 	case ConnectionError:
-		hlog.SystemLogger().Errorf("HTTP2 server: connection error from %v: %v", sc.conn.RemoteAddr(), ev)
+		hlog.SystemLogger().Errorf("connection error from %v: %v", sc.conn.RemoteAddr(), ev)
 		sc.goAway(ErrCode(ev))
 		return true // goAway will handle shutdown
 	default:
 		if res.err != nil {
 			if VerboseLogs {
-				hlog.SystemLogger().Infof("HTTP2 server: closing client connection; error reading frame from client %s: %v", sc.conn.RemoteAddr(), err)
+				hlog.SystemLogger().Infof("closing client connection; error reading frame from client %s: %v", sc.conn.RemoteAddr(), err)
 			}
 		} else {
-			hlog.SystemLogger().Errorf("HTTP2 server: closing client connection: %v", err)
+			hlog.SystemLogger().Errorf("closing client connection: %v", err)
 		}
 		return false
 	}
@@ -1211,7 +1211,7 @@ func (sc *serverConn) processFrame(f Frame) error {
 		return ConnectionError(ErrCodeProtocol)
 	default:
 		if VerboseLogs {
-			hlog.SystemLogger().Infof("HTTP2 server: ignoring frame: %v", f.Header())
+			hlog.SystemLogger().Infof("ignoring frame: %v", f.Header())
 		}
 		return nil
 	}
@@ -1364,7 +1364,7 @@ func (sc *serverConn) processSetting(s Setting) error {
 		return err
 	}
 	if VerboseLogs {
-		hlog.SystemLogger().Infof("HTTP2 server: processing setting %v", s)
+		hlog.SystemLogger().Infof("processing setting %v", s)
 	}
 	switch s.ID {
 	case SettingHeaderTableSize:
@@ -1385,7 +1385,7 @@ func (sc *serverConn) processSetting(s Setting) error {
 		// frame with any unknown or unsupported identifier MUST
 		// ignore that setting."
 		if VerboseLogs {
-			hlog.SystemLogger().Infof("HTTP2 server: ignoring unknown setting %v", s)
+			hlog.SystemLogger().Infof("ignoring unknown setting %v", s)
 		}
 	}
 	return nil
