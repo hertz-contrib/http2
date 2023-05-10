@@ -1905,7 +1905,7 @@ func (rl *clientConnReadLoop) run() error {
 
 		if !gotSettings {
 			if _, ok := f.(*SettingsFrame); !ok {
-				hlog.SystemLogger().Errorf("HTTP2: protocol error and received %T before a SETTINGS frame", f)
+				hlog.SystemLogger().Errorf("HTTP2: protocol error: received %T before a SETTINGS frame", f)
 				return ConnectionError(ErrCodeProtocol)
 			}
 			gotSettings = true
@@ -2236,7 +2236,7 @@ func (rl *clientConnReadLoop) processData(f *DataFrame) error {
 		return nil
 	}
 	if cs.readClosed {
-		hlog.SystemLogger().Error("HTTP2: protocol error and received DATA after END_STREAM")
+		hlog.SystemLogger().Error("HTTP2: protocol error: received DATA after END_STREAM")
 		rl.endStreamError(cs, StreamError{
 			StreamID: f.StreamID,
 			Code:     ErrCodeProtocol,
@@ -2244,7 +2244,7 @@ func (rl *clientConnReadLoop) processData(f *DataFrame) error {
 		return nil
 	}
 	if !cs.firstByte {
-		hlog.SystemLogger().Error("HTTP2: protocol error and received DATA before a HEADERS frame")
+		hlog.SystemLogger().Error("HTTP2: protocol error: received DATA before a HEADERS frame")
 		rl.endStreamError(cs, StreamError{
 			StreamID: f.StreamID,
 			Code:     ErrCodeProtocol,
@@ -2253,7 +2253,7 @@ func (rl *clientConnReadLoop) processData(f *DataFrame) error {
 	}
 	if f.Length > 0 {
 		if cs.isHead && len(data) > 0 {
-			hlog.SystemLogger().Error("HTTP2: protocol error and received DATA on a HEAD request")
+			hlog.SystemLogger().Error("HTTP2: protocol error: received DATA on a HEAD request")
 			rl.endStreamError(cs, StreamError{
 				StreamID: f.StreamID,
 				Code:     ErrCodeProtocol,
