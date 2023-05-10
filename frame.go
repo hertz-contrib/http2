@@ -395,10 +395,10 @@ func (f *Framer) logWrite() {
 	f.debugFramerBuf.Write(f.wbuf)
 	fr, err := f.debugFramer.ReadFrame()
 	if err != nil {
-		hlog.SystemLogger().Infof("HERTZ: HTTP2 framer %p: failed to decode just-written frame, err: %v", f, err)
+		hlog.SystemLogger().Infof("HTTP2 framer %p: failed to decode just-written frame, err: %v", f, err)
 		return
 	}
-	hlog.SystemLogger().Infof("HERTZ: HTTP2 framer %p: wrote %v", f, summarizeFrame(fr))
+	hlog.SystemLogger().Infof("HTTP2 framer %p: wrote %v", f, summarizeFrame(fr))
 }
 
 func (f *Framer) writeByte(v byte)     { f.wbuf = append(f.wbuf, v) }
@@ -522,7 +522,7 @@ func (fr *Framer) ReadFrame() (Frame, error) {
 		return nil, err
 	}
 	if fr.logReads {
-		hlog.SystemLogger().Infof("HERTZ: HTTP2 framer %p: read %v", fr, summarizeFrame(f))
+		hlog.SystemLogger().Infof("HTTP2 framer %p: read %v", fr, summarizeFrame(f))
 	}
 	if fh.Type == FrameHeaders && fr.ReadMetaHeaders != nil {
 		return fr.readMetaFrame(f.(*HeadersFrame))
@@ -1502,7 +1502,7 @@ func (fr *Framer) readMetaFrame(hf *HeadersFrame) (*MetaHeadersFrame, error) {
 	hdec.SetMaxStringLength(fr.maxHeaderStringLen())
 	hdec.SetEmitFunc(func(hf hpack.HeaderField) {
 		if fr.logReads {
-			hlog.SystemLogger().Infof("HERTZ: HTTP2 decoded hpack field %+v", hf)
+			hlog.SystemLogger().Infof("HTTP2 decoded hpack field %+v", hf)
 		}
 		if !httpguts.ValidHeaderFieldValue(hf.Value) {
 			invalid = headerFieldValueError(hf.Value)
@@ -1563,14 +1563,14 @@ func (fr *Framer) readMetaFrame(hf *HeadersFrame) (*MetaHeadersFrame, error) {
 	if invalid != nil {
 		fr.errDetail = invalid
 		if VerboseLogs {
-			hlog.SystemLogger().Infof("HERTZ: HTTP2 invalid header: %v", invalid)
+			hlog.SystemLogger().Infof("HTTP2 invalid header: %v", invalid)
 		}
 		return nil, StreamError{mh.StreamID, ErrCodeProtocol, invalid}
 	}
 	if err := mh.checkPseudos(); err != nil {
 		fr.errDetail = err
 		if VerboseLogs {
-			hlog.SystemLogger().Infof("HERTZ: HTTP2 invalid pseudo headers: %v", err)
+			hlog.SystemLogger().Infof("HTTP2 invalid pseudo headers: %v", err)
 		}
 		return nil, StreamError{mh.StreamID, ErrCodeProtocol, err}
 	}

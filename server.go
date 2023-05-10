@@ -307,7 +307,7 @@ func (s *Server) Serve(ctx context.Context, c network.Conn) error {
 
 func (sc *serverConn) rejectConn(err ErrCode, debug string) {
 	if VerboseLogs {
-		hlog.SystemLogger().Infof("HERTZ: HTTP2 server rejecting conn: %v, %s", err, debug)
+		hlog.SystemLogger().Infof("HTTP2 server rejecting conn: %v, %s", err, debug)
 	}
 	// ignoring errors. hanging up anyway.
 	sc.framer.WriteGoAway(0, err, []byte(debug))
@@ -591,7 +591,7 @@ func (sc *serverConn) serve() {
 	defer close(sc.doneServing) // unblocks handlers trying to send
 
 	if VerboseLogs {
-		hlog.SystemLogger().Infof("HERTZ: HTTP2 server connection from %v", sc.conn.RemoteAddr())
+		hlog.SystemLogger().Infof("HTTP2 server connection from %v", sc.conn.RemoteAddr())
 	}
 
 	sc.writeFrame(FrameWriteRequest{
@@ -611,7 +611,7 @@ func (sc *serverConn) serve() {
 	}
 
 	if err := sc.readPreface(); err != nil {
-		sc.condlogf(err, "HERTZ: HTTP2 server: error reading preface from client %v: %v", sc.conn.RemoteAddr(), err)
+		sc.condlogf(err, "HTTP2 server: error reading preface from client %v: %v", sc.conn.RemoteAddr(), err)
 		return
 	}
 
@@ -664,16 +664,16 @@ func (sc *serverConn) serve() {
 			case *serverMessage:
 				switch v {
 				case settingsTimerMsg:
-					hlog.SystemLogger().Errorf("HERTZ: Timeout waiting for SETTINGS frames from %v", sc.conn.RemoteAddr())
+					hlog.SystemLogger().Errorf("Timeout waiting for SETTINGS frames from %v", sc.conn.RemoteAddr())
 					return
 				case idleTimerMsg:
 					if VerboseLogs {
-						hlog.SystemLogger().Infof("HERTZ: Connection is idle")
+						hlog.SystemLogger().Infof("Connection is idle")
 					}
 					sc.goAway(ErrCodeNo)
 				case shutdownTimerMsg:
 					if VerboseLogs {
-						hlog.SystemLogger().Infof("HERTZ: GOAWAY close timer fired; closing conn from %v", sc.conn.RemoteAddr())
+						hlog.SystemLogger().Infof("GOAWAY close timer fired; closing conn from %v", sc.conn.RemoteAddr())
 					}
 					return
 				case gracefulShutdownMsg:
@@ -693,7 +693,7 @@ func (sc *serverConn) serve() {
 		// run out of memory.
 		if sc.queuedControlFrames > sc.srv.maxQueuedControlFrames() {
 			if VerboseLogs {
-				hlog.SystemLogger().Infof("HERTZ: HTTP2 too many control frames in send queue, closing connection")
+				hlog.SystemLogger().Infof("HTTP2 too many control frames in send queue, closing connection")
 			}
 			return
 		}
@@ -757,7 +757,7 @@ func (sc *serverConn) readPreface() error {
 	case err := <-errc:
 		if err == nil {
 			if VerboseLogs {
-				hlog.SystemLogger().Infof("HERTZ: HTTP2 server: client %v said hello", sc.conn.RemoteAddr())
+				hlog.SystemLogger().Infof("HTTP2 server: client %v said hello", sc.conn.RemoteAddr())
 			}
 		}
 		return err
@@ -1146,7 +1146,7 @@ func (sc *serverConn) processFrameFromReader(res readFrameResult) bool {
 	} else {
 		f := res.f
 		if VerboseLogs {
-			hlog.SystemLogger().Infof("HERTZ: HTTP2 server: read frame %v", summarizeFrame(f))
+			hlog.SystemLogger().Infof("HTTP2 server: read frame %v", summarizeFrame(f))
 		}
 		err = sc.processFrame(f)
 		if err == nil {
@@ -1162,16 +1162,16 @@ func (sc *serverConn) processFrameFromReader(res readFrameResult) bool {
 		sc.goAway(ErrCodeFlowControl)
 		return true
 	case ConnectionError:
-		hlog.SystemLogger().Errorf("HERTZ: HTTP2 server: connection error from %v: %v", sc.conn.RemoteAddr(), ev)
+		hlog.SystemLogger().Errorf("HTTP2 server: connection error from %v: %v", sc.conn.RemoteAddr(), ev)
 		sc.goAway(ErrCode(ev))
 		return true // goAway will handle shutdown
 	default:
 		if res.err != nil {
 			if VerboseLogs {
-				hlog.SystemLogger().Infof("HERTZ: HTTP2 server: closing client connection; error reading frame from client %s: %v", sc.conn.RemoteAddr(), err)
+				hlog.SystemLogger().Infof("HTTP2 server: closing client connection; error reading frame from client %s: %v", sc.conn.RemoteAddr(), err)
 			}
 		} else {
-			hlog.SystemLogger().Errorf("HERTZ: HTTP2 server: closing client connection: %v", err)
+			hlog.SystemLogger().Errorf("HTTP2 server: closing client connection: %v", err)
 		}
 		return false
 	}
@@ -1211,7 +1211,7 @@ func (sc *serverConn) processFrame(f Frame) error {
 		return ConnectionError(ErrCodeProtocol)
 	default:
 		if VerboseLogs {
-			hlog.SystemLogger().Infof("HERTZ: HTTP2 server: ignoring frame: %v", f.Header())
+			hlog.SystemLogger().Infof("HTTP2 server: ignoring frame: %v", f.Header())
 		}
 		return nil
 	}
@@ -1364,7 +1364,7 @@ func (sc *serverConn) processSetting(s Setting) error {
 		return err
 	}
 	if VerboseLogs {
-		hlog.SystemLogger().Infof("HERTZ: HTTP2 server: processing setting %v", s)
+		hlog.SystemLogger().Infof("HTTP2 server: processing setting %v", s)
 	}
 	switch s.ID {
 	case SettingHeaderTableSize:
@@ -1385,7 +1385,7 @@ func (sc *serverConn) processSetting(s Setting) error {
 		// frame with any unknown or unsupported identifier MUST
 		// ignore that setting."
 		if VerboseLogs {
-			hlog.SystemLogger().Infof("HERTZ: HTTP2 server: ignoring unknown setting %v", s)
+			hlog.SystemLogger().Infof("HTTP2 server: ignoring unknown setting %v", s)
 		}
 	}
 	return nil
@@ -1510,10 +1510,10 @@ func (sc *serverConn) processData(f *DataFrame) error {
 func (sc *serverConn) processGoAway(f *GoAwayFrame) error {
 	sc.serveG.check()
 	if f.ErrCode != ErrCodeNo {
-		hlog.SystemLogger().Errorf("HERTZ: HTTP2 received GOAWAY %+v, starting graceful shutdown", f)
+		hlog.SystemLogger().Errorf("HTTP2 received GOAWAY %+v, starting graceful shutdown", f)
 	} else {
 		if VerboseLogs {
-			hlog.SystemLogger().Infof("HERTZ: HTTP2 received GOAWAY %+v, starting graceful shutdown", f)
+			hlog.SystemLogger().Infof("HTTP2 received GOAWAY %+v, starting graceful shutdown", f)
 		}
 	}
 	sc.startGracefulShutdownInternal()
@@ -1875,7 +1875,7 @@ func (sc *serverConn) runHandler(rw *responseWriter, reqCtx *app.RequestContext,
 				const size = 64 << 10
 				buf := make([]byte, size)
 				buf = buf[:runtime.Stack(buf, false)]
-				hlog.SystemLogger().Errorf("HERTZ: HTTP2 panic serving %v: %v\n%s", sc.conn.RemoteAddr(), e, buf)
+				hlog.SystemLogger().Errorf("HTTP2 panic serving %v: %v\n%s", sc.conn.RemoteAddr(), e, buf)
 			}
 			return
 		} else {
@@ -1891,7 +1891,7 @@ func (sc *serverConn) runHandler(rw *responseWriter, reqCtx *app.RequestContext,
 					write:  handlerPanicRST{rw.rws.stream.id},
 					stream: rw.rws.stream,
 				})
-				hlog.SystemLogger().Errorf("HERTZ: HTTP2 write response body error when serving %v: %v", sc.conn.RemoteAddr(), err)
+				hlog.SystemLogger().Errorf("HTTP2 write response body error when serving %v: %v", sc.conn.RemoteAddr(), err)
 				return
 			}
 		}

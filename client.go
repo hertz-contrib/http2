@@ -390,7 +390,7 @@ func dialAddr(addr string, dial network.Dialer, tlsConfig *tls.Config, timeout t
 	var conn network.Conn
 	var err error
 	if dial == nil {
-		hlog.SystemLogger().Warnf("HERTZ: HostClient: no dialer specified, trying to use default dialer")
+		hlog.SystemLogger().Warnf("HostClient: no dialer specified, trying to use default dialer")
 		dial = dialer.DefaultDialer()
 	}
 	conn, err = dial.DialConnection("tcp", addr, timeout, tlsConfig)
@@ -1000,7 +1000,7 @@ func (cc *clientConn) Shutdown(ctx context.Context) error {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				hlog.SystemLogger().Errorf("HERTZ: h2 client shutdown panic: %v", r)
+				hlog.SystemLogger().Errorf("h2 client shutdown panic: %v", r)
 			}
 		}()
 
@@ -2496,7 +2496,7 @@ func (cc *clientConn) Ping(ctx context.Context) error {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				hlog.SystemLogger().Errorf("HERTZ: h2 client ping panic: %v", r)
+				hlog.SystemLogger().Errorf("h2 client ping panic: %v", r)
 			}
 		}()
 
