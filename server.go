@@ -63,6 +63,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/common/bytebufferpool"
 	"github.com/cloudwego/hertz/pkg/common/hlog"
+	"github.com/cloudwego/hertz/pkg/common/tracer/stats"
 	"github.com/cloudwego/hertz/pkg/common/utils"
 	"github.com/cloudwego/hertz/pkg/network"
 	"github.com/cloudwego/hertz/pkg/protocol"
@@ -1295,6 +1296,9 @@ func (sc *serverConn) closeStream(st *stream, err error, dirty bool) {
 	if st.state == stateIdle || st.state == stateClosed {
 		panic(fmt.Sprintf("invariant; can't close stream in state %v", st.state))
 	}
+	if st.reqCtx.IsEnableTrace() {
+		st.sc.engine.Core.GetTracer().DoFinish(st.baseCtx, st.reqCtx, err)
+	}
 	st.state = stateClosed
 	if st.writeDeadline != nil {
 		st.writeDeadline.Stop()
@@ -1620,6 +1624,9 @@ func (sc *serverConn) processHeaders(f *MetaHeadersFrame) error {
 
 	if f.HasPriority() {
 		if err := checkPriority(f.StreamID, f.Priority); err != nil {
+			if st.reqCtx.IsEnableTrace() {
+				Record(st.reqCtx.GetTraceInfo(), stats.ReadHeaderFinish, err)
+			}
 			return err
 		}
 		sc.writeSched.AdjustStream(st.id, f.Priority)
@@ -1630,6 +1637,12 @@ func (sc *serverConn) processHeaders(f *MetaHeadersFrame) error {
 	rw, err := sc.newWriterAndRequest(st, f)
 	st.rw = rw
 	st.reqCtx.SetConn(&h2ServerConn{sc.conn, rw})
+
+	// trace header reading finished here - right before go into upper layer
+	if st.reqCtx.IsEnableTrace() {
+		Record(st.reqCtx.GetTraceInfo(), stats.ReadHeaderFinish, err)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -1691,12 +1704,23 @@ func (sc *serverConn) newStream(id, pusherID uint32, state streamState) *stream 
 	reqCtx.Request.Header.SetProtocol(consts.HTTP20)
 	reqCtx.Request.Header.InitContentLengthWithValue(-1)
 
+	// Start trace
+	cc := sc.baseCtx
+	if sc.engine.Config.EnableTrace {
+		reqCtx.SetEnableTrace(true)
+		cc = sc.engine.Core.GetTracer().DoStart(sc.baseCtx, reqCtx)
+		// Because the actual header reading process is in another goroutine,
+		// we can't determine the exact starting point. So we consider
+		// the header reading starts here.
+		Record(reqCtx.GetTraceInfo(), stats.ReadHeaderStart, nil)
+	}
+
 	st := &stream{
 		sc:      sc,
 		id:      id,
 		state:   state,
 		reqCtx:  reqCtx,
-		baseCtx: sc.baseCtx,
+		baseCtx: cc,
 	}
 	st.cw.Init()
 	st.flow.conn = &sc.flow // link to conn-level counter
@@ -1864,6 +1888,14 @@ func writeResponseBody(rw *responseWriter, reqCtx *app.RequestContext) (err erro
 func (sc *serverConn) runHandler(rw *responseWriter, reqCtx *app.RequestContext, handler app.HandlerFunc) {
 	didPanic := true
 	defer func() {
+		var err error
+
+		defer func() {
+			if reqCtx.IsEnableTrace() {
+				Record(reqCtx.GetTraceInfo(), stats.ServerHandleFinish, err)
+			}
+		}()
+
 		if didPanic {
 			e := recover()
 			sc.writeFrameFromHandler(FrameWriteRequest{
@@ -1875,28 +1907,33 @@ func (sc *serverConn) runHandler(rw *responseWriter, reqCtx *app.RequestContext,
 				const size = 64 << 10
 				buf := make([]byte, size)
 				buf = buf[:runtime.Stack(buf, false)]
-				hlog.SystemLogger().Errorf("HTTP2: panic serving %v: %v\n%s", sc.conn.RemoteAddr(), e, buf)
+				err = fmt.Errorf("HTTP2: panic serving %v: %v\n%s", sc.conn.RemoteAddr(), e, buf)
+				hlog.SystemLogger().Error(err.Error())
 			}
 			return
-		} else {
-			if writer := reqCtx.Response.GetHijackWriter(); writer != nil {
-				writer.Finalize()
-				return
-			}
-
-			rw.WriteHeader(reqCtx.Response.StatusCode())
-			err := writeResponseBody(rw, reqCtx)
-			if err != nil {
-				sc.writeFrameFromHandler(FrameWriteRequest{
-					write:  handlerPanicRST{rw.rws.stream.id},
-					stream: rw.rws.stream,
-				})
-				hlog.SystemLogger().Errorf("HTTP2: write response body error when serving %v: %v", sc.conn.RemoteAddr(), err)
-				return
-			}
 		}
+
+		if writer := reqCtx.Response.GetHijackWriter(); writer != nil {
+			writer.Finalize()
+			return
+		}
+
+		rw.WriteHeader(reqCtx.Response.StatusCode())
+		err = writeResponseBody(rw, reqCtx)
+		if err != nil {
+			sc.writeFrameFromHandler(FrameWriteRequest{
+				write:  handlerPanicRST{rw.rws.stream.id},
+				stream: rw.rws.stream,
+			})
+			hlog.SystemLogger().Errorf("HTTP2: write response body error when serving %v: %v", sc.conn.RemoteAddr(), err)
+			return
+		}
+
 		rw.handlerDone()
 	}()
+	if reqCtx.IsEnableTrace() {
+		Record(reqCtx.GetTraceInfo(), stats.ServerHandleStart, nil)
+	}
 	handler(rw.rws.stream.baseCtx, reqCtx)
 
 	didPanic = false

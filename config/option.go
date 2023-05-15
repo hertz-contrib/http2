@@ -24,6 +24,7 @@ import (
 
 type Config struct {
 	DisableKeepalive bool
+	EnableTrace      bool
 	ReadTimeout      time.Duration
 
 	// MaxHandlers limits the number of http.Handler ServeHTTP goroutines
