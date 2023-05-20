@@ -1854,6 +1854,9 @@ func (sc *serverConn) newWriterAndRequestNoBody(st *stream) (*responseWriter, er
 }
 
 func writeResponseBody(rw *responseWriter, reqCtx *app.RequestContext) (err error) {
+	if !bodyAllowedForStatus(reqCtx.Response.StatusCode()) {
+		return nil
+	}
 	if reqCtx.Response.IsBodyStream() {
 		var n int
 		vbuf := utils.CopyBufPool.Get()
