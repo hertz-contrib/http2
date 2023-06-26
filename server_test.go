@@ -3015,7 +3015,7 @@ func TestCheckValidHTTP2Request(t *testing.T) {
 	}{
 		{
 			h: [][2]string{
-				{"Te", "trailer"},
+				{"Te", "trailers"},
 			},
 			want: nil,
 		},
