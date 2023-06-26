@@ -3015,7 +3015,7 @@ func TestCheckValidHTTP2Request(t *testing.T) {
 	}{
 		{
 			h: [][2]string{
-				{"Te", "trailer"},
+				{"Te", "trailers"},
 			},
 			want: nil,
 		},
@@ -3766,6 +3766,22 @@ func TestServer_HijackWriter_Flush(t *testing.T) {
 		df = st.wantData()
 		if !df.StreamEnded() {
 			t.Fatal("want STREAM_ENDED flag")
+		}
+	})
+}
+
+func TestServer_Request_Te_Header_Check(t *testing.T) {
+	testServerRequest(t, func(st *hertzServerTester) {
+		st.writeHeaders(HeadersFrameParam{
+			StreamID:      1, // clients send odd numbers
+			BlockFragment: st.encodeHeader("te", "trailers"),
+			EndStream:     true, // no DATA frames
+			EndHeaders:    true,
+		})
+	}, func(ctx *app.RequestContext) {
+		err := checkValidHTTP2RequestHeaders(&ctx.Request.Header)
+		if err != nil {
+			t.Errorf("http2 header check failed")
 		}
 	})
 }
