@@ -2224,7 +2224,7 @@ func checkValidHTTP2RequestHeaders(h *protocol.RequestHeader) error {
 	}
 
 	te := h.Get(consts.HeaderTE)
-	if te != "" && te != "trailer" {
+	if te != "" && te != "trailers" {
 		return errors.New(`request header "TE" may only be "trailers" in HTTP/2`)
 	}
 	return nil
