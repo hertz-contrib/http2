@@ -299,12 +299,7 @@ func (w *responseWriter) write(lenData int, dataB []byte, dataS string) (n int, 
 	if rws == nil {
 		panic("Write called after Handler finished")
 	}
-	if !rws.wroteHeader {
-		w.WriteHeader(200)
-	}
-	if !bodyAllowedForStatus(rws.status) {
-		return 0, http.ErrBodyNotAllowed
-	}
+
 	rws.wroteBytes += int64(len(dataB)) + int64(len(dataS)) // only one can be set
 	if rws.sentContentLen != 0 && rws.wroteBytes > rws.sentContentLen {
 		// TODO: send a RST_STREAM
