@@ -923,6 +923,7 @@ type clientConnIdleState struct {
 }
 
 func (cc *clientConn) idleStateLocked() (st clientConnIdleState) {
+	hlog.SystemLogger().Warnf("http2: idleStateLocked singleUse: %#v, nextStreamID: %#v", cc.singleUse, cc.nextStreamID)
 	if cc.singleUse && cc.nextStreamID > 1 {
 		return
 	}
@@ -936,6 +937,8 @@ func (cc *clientConn) idleStateLocked() (st clientConnIdleState) {
 	} else {
 		maxConcurrentOkay = int64(len(cc.streams)+cc.streamsReserved+1) <= int64(cc.maxConcurrentStreams)
 	}
+	hlog.SystemLogger().Warnf("http2: idleStateLocked goAway: %#v, !closed: %#v, !closing: %#v, maxConcurrentOkay: %#v, doNotReuse: %#v, int64(cc.nextStreamID)+2*int64(cc.pendingRequests)< math.MaxInt32: %#v, !cc.tooIdleLocked(): %#v",
+		cc.goAway, !cc.closed, !cc.closing, maxConcurrentOkay, !cc.doNotReuse, int64(cc.nextStreamID)+2*int64(cc.pendingRequests) < math.MaxInt32, !cc.tooIdleLocked())
 
 	st.canTakeNewRequest = cc.goAway == nil && !cc.closed && !cc.closing && maxConcurrentOkay &&
 		!cc.doNotReuse &&
