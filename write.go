@@ -23,16 +23,14 @@ package http2
 import (
 	"bytes"
 	"fmt"
-	"net/http"
-	"net/url"
-	"strings"
-
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/http2/hpack"
 	"github.com/hertz-contrib/http2/internal/bytesconv"
 	consts2 "github.com/hertz-contrib/http2/internal/consts"
+	"net/http"
+	"net/url"
 )
 
 // writeFramer is implemented by any type that is used to write frames.
@@ -384,8 +382,9 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, isTrailer boo
 		headerKVs := h.GetHeaders()
 
 		for _, kv := range headerKVs {
-			k := string(kv.GetKey())
-			k = lowerHeader(k)
+			key := kv.GetKey()
+			bytesconv.LowercaseBytes(key)
+			k := string(key)
 			if !validWireHeaderFieldName(k) {
 				// Skip it as backup paranoia. Per
 				// golang.org/issue/14048, these should
@@ -393,11 +392,11 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, isTrailer boo
 				continue
 			}
 
-			if strings.ToLower(k) == "connection" ||
-				strings.ToLower(k) == "proxy-connection" ||
-				strings.ToLower(k) == "transfer-encoding" ||
-				strings.ToLower(k) == "upgrade" ||
-				strings.ToLower(k) == "keep-alive" {
+			if k == "connection" ||
+				k == "proxy-connection" ||
+				k == "transfer-encoding" ||
+				k == "upgrade" ||
+				k == "keep-alive" {
 				// Per 8.1.2.2 Connection-Specific Header
 				// Fields, don't send connection-specific
 				// fields. We have already checked if any
@@ -411,8 +410,9 @@ func encodeHeaders(enc *hpack.Encoder, h *protocol.ResponseHeader, isTrailer boo
 		headerKVs := h.Trailer().GetTrailers()
 
 		for _, kv := range headerKVs {
-			k := string(kv.GetKey())
-			k = lowerHeader(k)
+			key := kv.GetKey()
+			bytesconv.LowercaseBytes(key)
+			k := string(key)
 			if !validWireHeaderFieldName(k) {
 				// Skip it as backup paranoia. Per
 				// golang.org/issue/14048, these should

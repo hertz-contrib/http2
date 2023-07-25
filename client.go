@@ -1611,22 +1611,24 @@ func (cc *clientConn) encodeHeaders(req *protocol.Request, addGzipHeader bool, c
 		}
 
 		var didUA bool
-		req.Header.VisitAll(func(k, v []byte) {
-			if strings.ToLower(bytesconv.B2s(k)) == "host" || strings.ToLower(bytesconv.B2s(k)) == "content-length" {
+		req.Header.VisitAll(func(key, v []byte) {
+			bytesconv.LowercaseBytes(key)
+			k := string(key)
+			if k == "host" || k == "content-length" {
 				// Host is :authority, already sent.
 				// Content-Length is automatic, set below.
 				return
-			} else if strings.ToLower(bytesconv.B2s(k)) == "connection" ||
-				strings.ToLower(bytesconv.B2s(k)) == "proxy-connection" ||
-				strings.ToLower(bytesconv.B2s(k)) == "transfer-encoding" ||
-				strings.ToLower(bytesconv.B2s(k)) == "upgrade" ||
-				strings.ToLower(bytesconv.B2s(k)) == "keep-alive" {
+			} else if k == "connection" ||
+				k == "proxy-connection" ||
+				k == "transfer-encoding" ||
+				k == "upgrade" ||
+				k == "keep-alive" {
 				// Per 8.1.2.2 Connection-Specific Header
 				// Fields, don't send connection-specific
 				// fields. We have already checked if any
 				// are error-worthy so just ignore the rest.
 				return
-			} else if strings.ToLower(bytesconv.B2s(k)) == "user-agent" {
+			} else if k == "user-agent" {
 				// Match Go's http1 behavior: at most one
 				// User-Agent. If set to nil or empty string,
 				// then omit it. Otherwise if not mentioned,
@@ -1635,7 +1637,7 @@ func (cc *clientConn) encodeHeaders(req *protocol.Request, addGzipHeader bool, c
 				if len(v) < 1 {
 					return
 				}
-			} else if strings.ToLower(bytesconv.B2s(k)) == "cookie" {
+			} else if k == "cookie" {
 				// Per 8.1.2.5 To allow for better compression efficiency, the
 				// Cookie header field MAY be split into separate header fields,
 				// each with one or more cookie-pairs.
@@ -1660,11 +1662,11 @@ func (cc *clientConn) encodeHeaders(req *protocol.Request, addGzipHeader bool, c
 
 				return
 			}
-			f(string(k), string(v))
+			f(k, string(v))
 		})
 
 		if shouldSendReqContentLength(bytesconv.B2s(req.Method()), contentLength) {
-			f("content-length", strconv.FormatInt(int64(contentLength), 10))
+			f("content-length", strconv.FormatInt(contentLength, 10))
 		}
 		if addGzipHeader {
 			f("accept-encoding", "gzip")
@@ -1690,7 +1692,7 @@ func (cc *clientConn) encodeHeaders(req *protocol.Request, addGzipHeader bool, c
 
 	// Header list size is ok. Write the headers.
 	enumerateHeaders(func(name, value string) {
-		name = strings.ToLower(name)
+		// format key to lowercase in enumerat headers
 		cc.writeHeader(name, value)
 	})
 
