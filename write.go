@@ -23,14 +23,15 @@ package http2
 import (
 	"bytes"
 	"fmt"
+	"net/http"
+	"net/url"
+
 	"github.com/cloudwego/hertz/pkg/common/hlog"
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/hertz-contrib/http2/hpack"
 	"github.com/hertz-contrib/http2/internal/bytesconv"
 	consts2 "github.com/hertz-contrib/http2/internal/consts"
-	"net/http"
-	"net/url"
 )
 
 // writeFramer is implemented by any type that is used to write frames.

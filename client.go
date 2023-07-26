@@ -204,6 +204,7 @@ func (hc *HostClient) Do(ctx context.Context, req *protocol.Request, rsp *protoc
 			hlog.SystemLogger().Errorf("HTTP2: transport failed to get client conn for %s: %v", hc.Addr, err)
 			return err
 		}
+
 		err = cc.RoundTrip(ctx, req, rsp)
 		if err == nil {
 			return nil
@@ -1611,9 +1612,12 @@ func (cc *clientConn) encodeHeaders(req *protocol.Request, addGzipHeader bool, c
 		}
 
 		var didUA bool
+		buffer := make([]byte, 0, 256)
 		req.Header.VisitAll(func(key, v []byte) {
-			bytesconv.LowercaseBytes(key)
-			k := string(key)
+			buffer = buffer[:0]
+			buffer = append(buffer, key...)
+			bytesconv.LowercaseBytes(buffer)
+			k := string(buffer)
 			if k == "host" || k == "content-length" {
 				// Host is :authority, already sent.
 				// Content-Length is automatic, set below.
