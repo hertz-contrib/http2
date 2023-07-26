@@ -37,7 +37,9 @@ func runClient() {
 	c, _ := client.NewClient()
 	c.SetClientFactory(factory.NewClientFactory(
 		config.WithDialer(standard.NewDialer()),
-		config.WithTLSConfig(&tls.Config{InsecureSkipVerify: true})))
+		config.WithTLSConfig(&tls.Config{InsecureSkipVerify: true}),
+		config.WithNoDefaultUserAgent(true)),
+	)
 
 	v, _ := json.Marshal(map[string]string{
 		"hello":    "world",

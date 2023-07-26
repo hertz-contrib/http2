@@ -104,6 +104,9 @@ type ClientConfig struct {
 
 	// Connection will close after each request when set this to true.
 	DisableKeepAlive bool
+
+	// If true, h2 client won't add default user-agent
+	NoDefaultUserAgent bool
 }
 
 func (o *ClientConfig) Apply(opts []ClientOption) {
@@ -178,6 +181,13 @@ func WithDialTimeout(timeout time.Duration) ClientOption {
 func WithTLSConfig(tlsConfig *tls.Config) ClientOption {
 	return ClientOption{F: func(o *ClientConfig) {
 		o.TLSConfig = tlsConfig
+	}}
+}
+
+// WithNoDefaultUserAgent is used to set NoDefaultUserAgent.
+func WithNoDefaultUserAgent(noDefaultUserAgent bool) ClientOption {
+	return ClientOption{F: func(o *ClientConfig) {
+		o.NoDefaultUserAgent = noDefaultUserAgent
 	}}
 }
 

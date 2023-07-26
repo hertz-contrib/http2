@@ -1669,7 +1669,7 @@ func (cc *clientConn) encodeHeaders(req *protocol.Request, addGzipHeader bool, c
 		if addGzipHeader {
 			f("accept-encoding", "gzip")
 		}
-		if !didUA {
+		if !didUA && !cc.hc.NoDefaultUserAgent {
 			f("user-agent", string(bytestr.DefaultUserAgent))
 		}
 	}
