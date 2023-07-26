@@ -1618,7 +1618,10 @@ func TestHostClientChecksRequestHeaderListSize(t *testing.T) {
 	}
 	headerListSizeForRequest := func(req *protocol.Request) (size uint64) {
 		contentLen := int64(req.Header.ContentLength())
-		cc := &clientConn{peerMaxHeaderListSize: 0xffffffffffffffff}
+		cc := &clientConn{
+			peerMaxHeaderListSize: 0xffffffffffffffff,
+			hc:                    &HostClient{ClientConfig: &config.ClientConfig{NoDefaultUserAgent: true}},
+		}
 		cc.henc = hpack.NewEncoder(&cc.hbuf)
 		cc.mu.Lock()
 		hdrs, err := cc.encodeHeaders(req, true, contentLen)
@@ -3106,7 +3109,10 @@ func TestHostClientRequestPathPseudo(t *testing.T) {
 		},
 	}
 	for i, tt := range tests {
-		cc := &clientConn{peerMaxHeaderListSize: 0xffffffffffffffff}
+		cc := &clientConn{
+			peerMaxHeaderListSize: 0xffffffffffffffff,
+			hc:                    &HostClient{ClientConfig: &config.ClientConfig{NoDefaultUserAgent: true}},
+		}
 		cc.henc = hpack.NewEncoder(&cc.hbuf)
 		cc.mu.Lock()
 		req := protocol.AcquireRequest()

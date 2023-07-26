@@ -370,3 +370,35 @@ func TestBodyNotAllowedStatus(t *testing.T) {
 	assert.DeepEqual(t, rsp.StatusCode(), 304)
 	assert.DeepEqual(t, len(rsp.Body()), 0)
 }
+
+func TestNoDefaultUserAgent(t *testing.T) {
+	var acceptCount int32 = 0
+	h := server.New(
+		server.WithHostPorts(":8895"),
+		server.WithH2C(true),
+		server.WithOnAccept(func(conn net.Conn) context.Context {
+			atomic.AddInt32(&acceptCount, 1)
+			return context.Background()
+		}))
+
+	// register http2 server factory
+	h.AddProtocol("h2", NewServerFactory())
+
+	h.POST("/", func(c context.Context, ctx *app.RequestContext) {
+		assert.DeepEqual(t, "", string(ctx.UserAgent()))
+		ctx.Data(304, "application/json", []byte("test data"))
+	})
+	go h.Spin()
+	time.Sleep(time.Second)
+
+	c, _ := client.NewClient()
+	c.SetClientFactory(NewClientFactory(config.WithAllowHTTP(true), config.WithNoDefaultUserAgent(true)))
+	req, rsp := protocol.AcquireRequest(), protocol.AcquireResponse()
+	req.SetMethod("POST")
+	req.SetRequestURI("http://127.0.0.1:8895")
+
+	err := c.Do(context.Background(), req, rsp)
+	assert.Nil(t, err)
+	assert.DeepEqual(t, rsp.StatusCode(), 304)
+	assert.DeepEqual(t, len(rsp.Body()), 0)
+}
