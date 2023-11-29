@@ -316,6 +316,12 @@ func (hc *HostClient) onConnectionDropped(c *clientConn) {
 
 func (hc *HostClient) createConn() (*clientConn, *list.Element, error) {
 	conn, err := hc.dialHostHard()
+	if hc.ReadTimeout != 0 {
+		conn.SetReadTimeout(hc.ReadTimeout)
+	}
+	if hc.WriteTimeout != 0 {
+		conn.SetWriteTimeout(hc.WriteTimeout)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
