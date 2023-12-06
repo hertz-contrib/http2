@@ -769,7 +769,7 @@ func (cs *clientStream) abortRequestBodyWrite() {
 func (cs *clientStream) copyTrailer() {
 	for _, hf := range cs.trailer {
 		key := canonicalHeader(hf.Name)
-		cs.res.Header.Trailer().UpdateArgBytes(bytesconv.S2b(key), bytesconv.S2b(hf.Value))
+		cs.res.Header.Trailer().Add(key, hf.Value)
 	}
 }
 
