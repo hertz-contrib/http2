@@ -107,6 +107,12 @@ type ClientConfig struct {
 
 	// If true, h2 client won't add default user-agent
 	NoDefaultUserAgent bool
+
+	// readtimeout sets timeout when read package
+	ReadTimeout time.Duration
+
+	// writetimeout sets timeout when write package
+	WriteTimeout time.Duration
 }
 
 func (o *ClientConfig) Apply(opts []ClientOption) {
@@ -223,6 +229,20 @@ func WithRetryConfig(opts ...retry.Option) ClientOption {
 func WithClientDisableKeepAlive(disable bool) ClientOption {
 	return ClientOption{F: func(o *ClientConfig) {
 		o.DisableKeepAlive = disable
+	}}
+}
+
+// WithClientReadTimeout is used to set client readtimeout.
+func WithClientReadTimeout(t time.Duration) ClientOption {
+	return ClientOption{F: func(o *ClientConfig) {
+		o.ReadTimeout = t
+	}}
+}
+
+// WithClientWriteTimeout is used to set client writeTimeout.
+func WithClientWriteTimeout(t time.Duration) ClientOption {
+	return ClientOption{F: func(o *ClientConfig) {
+		o.WriteTimeout = t
 	}}
 }
 
