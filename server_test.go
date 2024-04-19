@@ -3785,3 +3785,89 @@ func TestServer_Request_Te_Header_Check(t *testing.T) {
 		}
 	})
 }
+
+func TestServerContinuationFlood(t *testing.T) {
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+	})
+
+	defer st.Close()
+	st.writePreface()
+	st.writeInitialSettings()
+	st.writeSettingsAck()
+	framer := NewFramer(st.cc, newMockTLSConn(st.cc))
+	framer.MaxHeaderListSize = uint32(2368)
+	st.fr = framer
+	//st.fr.MaxHeaderListSize = uint32(2368)
+
+	st.writeHeaders(HeadersFrameParam{
+		StreamID:      1,
+		BlockFragment: st.encodeHeader(),
+		EndStream:     true,
+	})
+	for i := 0; i < 22000; i++ {
+		st.fr.WriteContinuation(1, false, st.encodeHeaderRaw(
+			fmt.Sprintf("x-%v", i), "1234567890",
+		))
+	}
+	st.fr.WriteContinuation(1, true, st.encodeHeaderRaw(
+		"x-last-header", "1",
+	))
+
+	var sawGoAway bool
+	for {
+		f, err := st.readFrame()
+		if err != nil {
+			break
+		}
+		switch f.(type) {
+		case *GoAwayFrame:
+			sawGoAway = true
+		case *HeadersFrame:
+			t.Fatalf("received HEADERS frame; want GOAWAY")
+		}
+	}
+	if !sawGoAway {
+		t.Errorf("connection closed with no GOAWAY frame; want one")
+	}
+
+}
+
+func TestServerContinuationAfterInvalidHeader(t *testing.T) {
+	st := newHertzServerTester(t, func(c context.Context, ctx *app.RequestContext) {
+	})
+
+	defer st.Close()
+
+	st.writePreface()
+	st.writeInitialSettings()
+	st.writeSettingsAck()
+
+	st.writeHeaders(HeadersFrameParam{
+		StreamID:      1,
+		BlockFragment: st.encodeHeader(),
+		EndStream:     true,
+	})
+	st.fr.WriteContinuation(1, false, st.encodeHeaderRaw(
+		"x-invalid-header", "\x00",
+	))
+	st.fr.WriteContinuation(1, true, st.encodeHeaderRaw(
+		"x-valid-header", "1",
+	))
+
+	var sawGoAway bool
+	for {
+		f, err := st.readFrame()
+		if err != nil {
+			break
+		}
+		switch f.(type) {
+		case *GoAwayFrame:
+			sawGoAway = true
+		case *HeadersFrame:
+			t.Fatalf("received HEADERS frame; want GOAWAY")
+		}
+	}
+	if !sawGoAway {
+		t.Errorf("connection closed with no GOAWAY frame; want one")
+	}
+}
