@@ -3797,7 +3797,7 @@ func TestServerContinuationFlood(t *testing.T) {
 	framer := NewFramer(st.cc, newMockTLSConn(st.cc))
 	framer.MaxHeaderListSize = uint32(2368)
 	st.fr = framer
-	//st.fr.MaxHeaderListSize = uint32(2368)
+	// st.fr.MaxHeaderListSize = uint32(2368)
 
 	st.writeHeaders(HeadersFrameParam{
 		StreamID:      1,
@@ -3829,7 +3829,6 @@ func TestServerContinuationFlood(t *testing.T) {
 	if !sawGoAway {
 		t.Errorf("connection closed with no GOAWAY frame; want one")
 	}
-
 }
 
 func TestServerContinuationAfterInvalidHeader(t *testing.T) {
