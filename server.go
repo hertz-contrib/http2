@@ -1858,6 +1858,19 @@ func writeResponseBody(rw *responseWriter, reqCtx *app.RequestContext) (err erro
 		return nil
 	}
 	if reqCtx.Response.IsBodyStream() {
+		defer func() {
+			if err != nil && reqCtx.Response.IsBodyStream() {
+				if closer, ok := reqCtx.Response.BodyStream().(io.Closer); ok {
+					closer.Close()
+				}
+			}
+		}()
+
+		if wt, ok := reqCtx.Response.BodyStream().(io.WriterTo); ok {
+			_, err := wt.WriteTo(rw)
+			return err
+		}
+
 		var n int
 		vbuf := utils.CopyBufPool.Get()
 		buf := vbuf.([]byte)
